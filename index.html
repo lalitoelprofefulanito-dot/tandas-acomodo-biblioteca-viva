@@ -91,6 +91,7 @@ select{min-height:52px;border:2px solid var(--teal2);border-radius:12px;padding:
   <section id="resultado" hidden>
     <h2>2. Dónde va cada libro</h2>
     <p id="resumen"></p>
+    <button id="etiquetas" hidden>📄 Descargar Excel de etiquetas</button>
     <div id="voz">
       <div class="voz">
         <button id="leer" class="principal">🔊 Leer tanda</button>
@@ -99,7 +100,7 @@ select{min-height:52px;border:2px solid var(--teal2);border-radius:12px;padding:
         <button id="anterior">⏮ Anterior</button>
       </div>
       <label class="ajuste"><span>Velocidad</span><input type="range" id="velocidad" min="0.6" max="1.5" step="0.1"><span id="velocidadTexto"></span></label>
-      <label class="ajuste"><input type="checkbox" id="lugarPrimero"><span>Decir primero anaquel y entrepaño</span></label>
+      <label class="ajuste"><input type="checkbox" id="lugarPrimero"><span>Decir primero el lugar (anaquel y entrepaño)</span></label>
     </div>
     <p id="sinVoz" class="ayuda" hidden>Este navegador no puede leer en voz alta. La lista se puede leer en pantalla.</p>
     <label class="ajuste"><input type="checkbox" id="porEstante"><span>Ordenar por estante</span></label>
@@ -369,6 +370,72 @@ const portadaHTML = b => b.portada
 const lugarHTML = b => `<p class="donde">${esc(b.titulo)} <span>— ${b.anaquel} — ${b.entrepano}</span></p>`;
 const datosHTML = b => `<p class="datos">${b.id}${b.autor ? ' · ' + esc(b.autor) : ''}${b.cantidad > 1 ? ` · <b>${b.cantidad} ejemplares</b>` : ''}</p>`;
 
+/* ───────────── Excel de etiquetas (folios en el orden de la tanda) ───────────── */
+const TABLA_CRC = Array.from({length: 256}, (_, n) => { for (let k = 0; k < 8; k++) n = n & 1 ? 0xEDB88320 ^ (n >>> 1) : n >>> 1; return n >>> 0; });
+function crc32(bytes) { let c = 0xFFFFFFFF; for (const x of bytes) c = TABLA_CRC[(c ^ x) & 255] ^ (c >>> 8); return (c ^ 0xFFFFFFFF) >>> 0; }
+// Zip sin compresión (suficiente para un .xlsx pequeño y no necesita librerías ni internet).
+function armarZip(archivos) {
+  const cod = new TextEncoder(), partes = [], central = [];
+  let pos = 0;
+  const u16 = n => [n & 255, n >>> 8 & 255], u32 = n => [n & 255, n >>> 8 & 255, n >>> 16 & 255, n >>> 24 & 255];
+  for (const [nombre, texto] of archivos) {
+    const nom = cod.encode(nombre), dat = cod.encode(texto), crc = crc32(dat);
+    const comun = [...u16(20), ...u16(0x0800), ...u16(0), ...u16(0), ...u16(0x21), ...u32(crc), ...u32(dat.length), ...u32(dat.length), ...u16(nom.length), ...u16(0)];
+    partes.push(new Uint8Array([0x50, 0x4B, 3, 4, ...comun]), nom, dat);
+    central.push(new Uint8Array([0x50, 0x4B, 1, 2, ...u16(20), ...comun, ...u16(0), ...u16(0), ...u16(0), ...u32(0), ...u32(pos)]), nom);
+    pos += 30 + nom.length + dat.length;
+  }
+  const tamCentral = central.reduce((t, a) => t + a.length, 0);
+  const fin = new Uint8Array([0x50, 0x4B, 5, 6, 0, 0, 0, 0, ...u16(archivos.length), ...u16(archivos.length), ...u32(tamCentral), ...u32(pos), 0, 0]);
+  return new Blob([...partes, ...central, fin], {type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
+}
+const xml = t => String(t).replace(/[<>&"]/g, c => ({'<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;'}[c])).replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, '');
+const celdaTexto = (ref, t) => t === '' ? '' : `<c r="${ref}" t="inlineStr"><is><t xml:space="preserve">${xml(t)}</t></is></c>`;
+function hojaXML(filas, anchos) {
+  return '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
+    + `<cols>${anchos.map((w, i) => `<col min="${i + 1}" max="${i + 1}" width="${w}" customWidth="1"/>`).join('')}</cols><sheetData>`
+    + filas.map((fila, i) => `<row r="${i + 1}">${fila.map((t, j) => celdaTexto('ABCDE'[j] + (i + 1), t)).join('')}</row>`).join('')
+    + '</sheetData></worksheet>';
+}
+// Un renglón por libro de la tanda, en el orden dictado. Libro sin folio en el Registro = celda vacía.
+function renglonesDeEtiquetas(tanda) {
+  return tanda.filas.map((f, i) => {
+    const b = f.estado === 'ok' ? POR_ID.get(f.id) : null;
+    return {n: i + 1, folio: b ? b.id : '', titulo: b ? b.titulo : '', dicho: f.dicho,
+            nota: b ? '' : 'No registrado: dejar sin etiqueta'};
+  });
+}
+function crearExcelEtiquetas(tanda) {
+  const r = renglonesDeEtiquetas(tanda);
+  const hoja1 = hojaXML(r.map(x => [x.folio]), [14]);
+  const hoja2 = hojaXML([['N.º', 'Folio', 'Título del Registro', 'Lo que se dictó', 'Nota'], ...r.map(x => [String(x.n), x.folio, x.titulo, x.dicho, x.nota])], [6, 12, 50, 40, 32]);
+  const cab = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>';
+  return armarZip([
+    ['[Content_Types].xml', cab + '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/worksheets/sheet2.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/></Types>'],
+    ['_rels/.rels', cab + '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>'],
+    ['xl/workbook.xml', cab + '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Folios" sheetId="1" r:id="rId1"/><sheet name="Referencia" sheetId="2" r:id="rId2"/></sheets></workbook>'],
+    ['xl/_rels/workbook.xml.rels', cab + '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet2.xml"/></Relationships>'],
+    ['xl/worksheets/sheet1.xml', hoja1],
+    ['xl/worksheets/sheet2.xml', hoja2],
+  ]);
+}
+const hayDudas = tanda => tanda.filas.some(f => f.estado === 'duda');
+function exportarEtiquetas(tanda) {
+  const r = renglonesDeEtiquetas(tanda), vacios = r.filter(x => !x.folio).length;
+  const d = new Date(tanda.inicio), dos = n => String(n).padStart(2, '0');
+  const nombre = `Etiquetas_${d.getFullYear()}-${dos(d.getMonth() + 1)}-${dos(d.getDate())}_${dos(d.getHours())}${dos(d.getMinutes())}.xlsx`;
+  const url = URL.createObjectURL(crearExcelEtiquetas(tanda)), a = document.createElement('a');
+  a.href = url; a.download = nombre;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 60000);
+  avisar(`Excel de etiquetas descargado: ${r.length} ${r.length === 1 ? 'renglón' : 'renglones'}` + (vacios ? `, ${vacios} en blanco (no registrados).` : '.'));
+}
+// Se exporta solo cuando ya no queda ninguna duda por aclarar.
+function exportarSiListo() {
+  const tanda = tandaActual();
+  if (tanda && !tanda.fin && tanda.filas.length && !hayDudas(tanda)) exportarEtiquetas(tanda);
+}
+
 /* ───────────── Resultado de la tanda ───────────── */
 // Renglones a mostrar y a leer (sin los «no encontrados»), en el orden elegido.
 function filasVisibles(tanda) {
@@ -412,6 +479,7 @@ function pintar() {
       + (duda ? ` · ${duda} por decidir` : '') + (no.length ? ` · ${no.length} no ${no.length === 1 ? 'encontrado' : 'encontrados'}` : '');
     $('lista').innerHTML = filasVisibles(tanda).map(f => filaHTML(tanda, f)).join('');
     $('noencontrados').hidden = !no.length;
+    $('etiquetas').hidden = hayDudas(tanda);
     $('listaNo').innerHTML = no.map(f => `<li>«${esc(f.dicho)}»</li>`).join('');
     const ubicados = tanda.filas.filter(f => f.ubicado).length;
     $('cerrada').hidden = !tanda.fin;
@@ -437,6 +505,7 @@ function identificar() {
   lector.pos = 0;
   pintar();
   $('resultado').scrollIntoView();
+  exportarSiListo();
 }
 
 $('lista').addEventListener('click', e => {
@@ -451,8 +520,10 @@ $('lista').addEventListener('click', e => {
   detenerLectura();
   guardarMemoria();
   pintar();
+  if (accion === 'elegir' || accion === 'ninguno') exportarSiListo();
 });
 
+$('etiquetas').addEventListener('click', () => exportarEtiquetas(tandaActual()));
 $('identificar').addEventListener('click', identificar);
 $('borrar').addEventListener('click', () => { $('dictado').value = ''; $('dictado').focus(); });
 $('porEstante').addEventListener('change', e => {
@@ -533,7 +604,7 @@ function textoHablado(f) {
   if (f.estado === 'duda') return `Sin decidir: ${f.dicho}.`;
   const b = POR_ID.get(f.id);
   if (!b) return '';
-  const lugar = `Anaquel ${b.anaquel}, entrepaño ${b.entrepano}.`, alerta = avisoDeLugar(b);
+  const lugar = `${b.anaquel}, ${b.entrepano}.`, alerta = avisoDeLugar(b);
   const titulo = /[.!?]$/.test(b.titulo) ? b.titulo : b.titulo + '.';
   const frase = (ajustes.lugarPrimero ? `${lugar} ${titulo}` : `${titulo} ${lugar}`) + (alerta ? ` Atención: ${alerta}.` : '');
   return frase.replace(/\b([1-6])\.?\s?[°º]/g, (_, grado) => ORDINALES[grado]);   // «5.° A» → «quinto A»
