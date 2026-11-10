@@ -8,7 +8,7 @@ Uso (dentro de la carpeta de la app, donde están index.html y sw.js):
     python generar_app.py Registro_Acervo_BibliotecaViva_2026-11-09.xlsx
 
 Qué hace:
-  1. Lee la hoja «Registro» (título, autor, cantidad, ubicación, situación).
+  1. Lee la hoja «Registro» (título, autor, subserie, cantidad, ubicación, situación).
   2. Lee la hoja «Acomodo por anaquel» (orden dentro del entrepaño y «Dónde está hoy»).
   3. Extrae las portadas incrustadas en la columna I (imagen dentro de la celda)
      y las guarda en portadas/BV-####.jpg (máx. 420 px, JPEG calidad 72).
@@ -34,6 +34,7 @@ LADO_MAXIMO = 420
 CALIDAD_JPEG = 72
 MARCA_INICIO = "/*DATOS-INICIO*/"
 MARCA_FIN = "/*DATOS-FIN*/"
+VERSION_APP = "v3"  # cambia cuando cambia el código de index.html, para que los celulares renueven su copia
 
 NS_HOJA = "{http://schemas.openxmlformats.org/spreadsheetml/2006/main}"
 NS_REL_DOC = "{http://schemas.openxmlformats.org/officeDocument/2006/relationships}"
@@ -59,6 +60,8 @@ def leer_registro(libro):
     if "Id" not in encabezados[REG_ID] or "Título" not in encabezados[REG_TITULO]:
         sys.exit("La hoja «Registro» cambió de estructura: no encuentro «Id» en la columna C "
                  "ni «Título» en la columna D. No generé nada.")
+    # «Subserie» se busca por su encabezado: sirve para decir «… de Pasos de luna» después del título.
+    reg_subserie = next((i for i, e in enumerate(encabezados) if e.lower().startswith("subserie")), None)
     filas, omitidos = {}, []
     for numero, fila in enumerate(hoja.iter_rows(min_row=2, values_only=True), start=2):
         folio = texto(fila[REG_ID])
@@ -79,11 +82,13 @@ def leer_registro(libro):
             cantidad = int(fila[REG_CANTIDAD] or 1)
         except (TypeError, ValueError):
             cantidad = 1
+        subserie = re.sub(r"\s+", " ", texto(fila[reg_subserie])) if reg_subserie is not None else ""
         filas[numero] = {
             "id": folio, "titulo": titulo, "autor": re.sub(r"\s+", " ", texto(fila[REG_AUTOR])),
+            "subserie": "" if subserie.lower() == "sin registro" else subserie,
             "cantidad": cantidad, "anaquel": int(lugar.group(1)), "entrepano": int(lugar.group(2)),
         }
-    return filas, omitidos
+    return filas, omitidos, reg_subserie is not None
 
 
 def leer_acomodo(libro):
@@ -181,7 +186,7 @@ def main():
 
     warnings.simplefilter("ignore")
     libro = openpyxl.load_workbook(ruta_excel, read_only=True, data_only=True)
-    registro, omitidos = leer_registro(libro)
+    registro, omitidos, hay_columna_subserie = leer_registro(libro)
     acomodo = leer_acomodo(libro)
     libro.close()
 
@@ -208,7 +213,7 @@ def main():
             sin_acomodo.append(datos["id"])
         acervo.append([datos["id"], datos["titulo"], datos["autor"], datos["cantidad"], datos["anaquel"],
                        datos["entrepano"], orden, "" if donde == "En anaquel" else donde,
-                       1 if datos["id"] in con_portada else 0])
+                       1 if datos["id"] in con_portada else 0, datos["subserie"]])
     acervo.sort(key=lambda libro_: libro_[0])
 
     fecha = fecha_de_datos(ruta_excel)
@@ -219,13 +224,17 @@ def main():
     ruta_index.write_text(pagina[:inicio] + bloque + pagina[fin:], encoding="utf-8")
 
     sw = ruta_sw.read_text(encoding="utf-8")
-    sw_nuevo, cambios = re.subn(r"const CACHE = '[^']*';", f"const CACHE = 'tandas-bv-{fecha}-{len(acervo)}';", sw)
+    sw_nuevo, cambios = re.subn(r"const CACHE = '[^']*';", f"const CACHE = 'tandas-bv-{fecha}-{len(acervo)}-{VERSION_APP}';", sw)
     if cambios != 1:
         sys.exit("sw.js no tiene la línea «const CACHE = '…';»; index.html sí quedó actualizado.")
     ruta_sw.write_text(sw_nuevo, encoding="utf-8")
 
     print(f"Libros en la app: {len(acervo)}  ·  con portada: {len(con_portada)}  ·  sin portada: {len(acervo) - len(con_portada)}")
     print(f"Fecha de los datos: {fecha}")
+    if hay_columna_subserie:
+        print(f"Con subserie: {sum(1 for l in acervo if l[9])}")
+    else:
+        print("No encontré la columna «Subserie» en la hoja «Registro»: la app no podrá filtrar por subserie.")
     if omitidos:
         print("Omitidos del Registro:", ", ".join(omitidos))
     if sin_acomodo:

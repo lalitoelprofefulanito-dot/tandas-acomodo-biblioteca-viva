@@ -28,6 +28,7 @@ button.peligro{border-color:var(--rojo);color:var(--rojo)}
 [hidden]{display:none!important}
 textarea{width:100%;min-height:9.5em;font-size:1.2rem;padding:12px;border:2px solid var(--teal2);border-radius:12px;resize:vertical;background:#fff}
 .ayuda{font-size:.85rem;color:var(--gris);margin:6px 0 10px}
+#estadoMic{font-weight:700;color:var(--rojo);min-height:2.6em}
 .fila-botones{display:flex;gap:8px;margin-top:10px}
 .fila-botones>*{flex:1}
 #resumen{font-weight:700;margin-bottom:10px}
@@ -79,11 +80,12 @@ select{min-height:52px;border:2px solid var(--teal2);border-radius:12px;padding:
 <main>
   <section id="captura">
     <h2>1. Dicta la tanda</h2>
-    <textarea id="dictado" autocapitalize="sentences" placeholder="Toca aquí y dicta los títulos con el micrófono del teclado.&#10;&#10;Ejemplo: el teléfono desocupado, no interrumpas Kika, la calle del fantasma"></textarea>
-    <p class="ayuda">Di los títulos de corrido o sepáralos con «siguiente», «luego», «otro», coma o un renglón nuevo. No importa si omites artículos o subtítulos.</p>
+    <button id="microfono" class="principal" hidden>🎤 Encender micrófono</button>
+    <p id="estadoMic" class="ayuda" role="status" hidden></p>
+    <textarea id="dictado" autocapitalize="sentences" placeholder="Enciende el micrófono y di los títulos. Se queda escuchando aunque hagas pausas, hasta que lo apagues.&#10;&#10;Ejemplo: el teléfono desocupado, mate maldición de Lane Smith, la calle del fantasma"></textarea>
+    <p class="ayuda">Di los títulos de corrido o sepáralos con «siguiente», «luego», «otro» o una pausa. Justo después de un título puedes decir su autor o su subserie: «… de Manuel Guerrero», «… de pasos de luna». No importa si omites artículos o subtítulos.</p>
     <button id="identificar" class="principal">Identificar tanda</button>
     <div class="fila-botones">
-      <button id="microfono" hidden>🎤 Dictar aquí</button>
       <button id="borrar">Borrar texto</button>
     </div>
   </section>
@@ -171,9 +173,9 @@ function distancia(a, b) {
 }
 
 /* ───────────── Catálogo e índice ───────────── */
-const LIBROS = ACERVO.map(([id, titulo, autor, cantidad, anaquel, entrepano, orden, donde, portada]) => {
+const LIBROS = ACERVO.map(([id, titulo, autor, cantidad, anaquel, entrepano, orden, donde, portada, subserie = '']) => {
   const lista = palabras(titulo);
-  return {id, titulo, autor, cantidad, anaquel, entrepano, orden, donde, portada, clave: lista.join(' '), unicas: new Set(lista), peso: 0};
+  return {id, titulo, autor, subserie, cantidad, anaquel, entrepano, orden, donde, portada, clave: lista.join(' '), unicas: new Set(lista), peso: 0};
 });
 const POR_ID = new Map(LIBROS.map(b => [b.id, b]));
 const VOCABULARIO = new Map();   // palabra → {fon, libros: [posiciones], peso}
@@ -193,7 +195,11 @@ const UMBRAL_DUDA = 0.45;                   // por debajo de esto: «no encontra
 const MARGEN = 0.1;                         // ventaja mínima sobre el segundo candidato
 const MAX_PALABRAS = 16;                    // título dictado más largo que se intenta
 const COSTO_POR_TITULO = 1.5;               // favorece pocos títulos largos sobre muchos pedazos
-const memoPalabras = new Map(), memoFrases = new Map();
+const UMBRAL_CON_PISTA = 0.3;               // con autor o subserie dichos, basta un título menos parecido
+const AYUDA_DE_PISTA = 0.15;                // cuánto sube la puntuación cuando la pista coincide
+const VALOR_PISTA = 8;                      // cada palabra de una pista que coincide vale más que leerla como otro título
+const MAX_PISTA = 6;                        // palabras que puede tener el nombre dictado
+const memoPalabras = new Map(), memoFrases = new Map(), memoAutores = new Map();
 
 // Palabras del catálogo que se parecen a la dictada: [[palabra, parecido], …] de mayor a menor.
 function parecidas(p) {
@@ -212,10 +218,10 @@ function parecidas(p) {
   return lista;
 }
 
-// Puntúa una frase dictada contra el catálogo. Devuelve {peso, cands: [{i, q, firme}]} (hasta 3 candidatos).
+// Puntúa una frase dictada contra el catálogo. Devuelve {peso, cands: [{i, q, firme}]}, de mayor a menor.
 // q combina cuánto de lo dictado está en el título (tolera títulos parciales) y cuánto del título se dictó.
 // «firme»: coinciden al menos dos palabras distintivas o se dictó el título completo.
-function puntuar(lista) {
+function candidatos(lista) {
   const clave = lista.join(' ');
   if (memoFrases.has(clave)) return memoFrases.get(clave);
   const info = lista.map(p => {
@@ -241,63 +247,146 @@ function puntuar(lista) {
     cands.push({i, q: (acierto / total) * (0.75 + 0.25 * cubierto / b.peso), firme: raras >= 2 || tocadas.size === b.unicas.size});
   });
   cands.sort((a, b) => b.q - a.q || LIBROS[a.i].id.localeCompare(LIBROS[b.i].id));
-  const resultado = {peso: total, cands: cands.slice(0, 3)};
+  const resultado = {peso: total, cands};
   memoFrases.set(clave, resultado);
   return resultado;
 }
 
+/* ───────────── Pistas: autor o subserie dichos justo después del título ───────────── */
+const SUBSERIES = ['Al sol solito', 'Pasos de luna', 'Astrolabio', 'Espejo de Urania', 'Cometas convidados']
+  .map(nombre => ({nombre, clave: palabras(nombre).join(' '), utiles: palabras(nombre).filter(p => !ENLACES.has(p)), libros: new Set()}));
+// Palabras que anuncian la pista: «de», «con», «del autor», «de la serie»… Los artículos solo acompañan.
+const ANUNCIOS = new Set('de del con por autor autora autores escrito escrita serie subserie coleccion la el los las'.split(' '));
+const ARTICULOS = new Set(['la', 'el', 'los', 'las']);
+const VOCABULARIO_AUTORES = new Map();   // palabra del nombre → {fon, libros: Set de posiciones}
+LIBROS.forEach((b, i) => {
+  palabras(b.autor).filter(p => p.length > 1 && !ENLACES.has(p)).forEach(p => {
+    if (!VOCABULARIO_AUTORES.has(p)) VOCABULARIO_AUTORES.set(p, {fon: fonetica(p), libros: new Set()});
+    VOCABULARIO_AUTORES.get(p).libros.add(i);
+  });
+  const serie = SUBSERIES.find(s => s.clave === palabras(b.subserie).join(' '));
+  if (serie) serie.libros.add(i);
+});
+const HAY_SUBSERIES = SUBSERIES.some(s => s.libros.size);   // el Registro cargado trae la columna «Subserie»
+const seParecen = (a, b) => a === b || (a.length > 3 && b.length > 3
+  && 1 - distancia(fonetica(a), fonetica(b)) / Math.max(fonetica(a).length, fonetica(b).length) >= SIMILITUD_MINIMA);
+
+// Libros cuyo autor tiene una palabra que suena como la dictada.
+function librosDelAutor(p) {
+  if (memoAutores.has(p)) return memoAutores.get(p);
+  const libros = new Set(), f = fonetica(p);
+  VOCABULARIO_AUTORES.forEach((v, q) => {
+    const igual = q === p || (p.length > 3 && q.length > 3 && Math.abs(v.fon.length - f.length) <= 3
+      && 1 - distancia(f, v.fon) / Math.max(f.length, v.fon.length) >= SIMILITUD_MINIMA);
+    if (igual) v.libros.forEach(i => libros.add(i));
+  });
+  memoAutores.set(p, libros);
+  return libros;
+}
+
+// Pistas que pueden empezar en la pieza j: [{fin, libros, n, serie, texto}].
+// libros = Set de posiciones que cumplen la pista; null = subserie reconocida, pero el Registro cargado no trae subseries.
+function pistasDesde(piezas, j) {
+  if (j >= piezas.length || piezas[j].separador) return [];
+  let c = j;
+  while (c < piezas.length && c - j < 4 && ANUNCIOS.has(piezas[c].p) && !(c > j && piezas[c].trasSigno)) c++;
+  // El anuncio y el nombre van juntos: si entre «de» y el nombre hubo una pausa, no es una pista.
+  const anunciada = piezas.slice(j, c).some(x => !ARTICULOS.has(x.p)) && c < piezas.length && !piezas[c].trasSigno, opciones = [];
+  if (!anunciada) c = j;
+  for (let fin = c + 1; fin <= Math.min(piezas.length, c + MAX_PISTA); fin++) {
+    const ultima = piezas[fin - 1];
+    if (ultima.separador || (fin - 1 > c && ultima.trasSigno)) break;
+    if (ENLACES.has(ultima.p)) continue;
+    const utiles = piezas.slice(c, fin).map(x => x.p).filter(p => !ENLACES.has(p));
+    const texto = piezas.slice(c, fin).map(x => x.crudo).filter(Boolean).join(' ');
+    const serie = SUBSERIES.find(s => s.utiles.length === utiles.length && s.utiles.every((p, k) => seParecen(p, utiles[k])));
+    if (serie) { opciones.push({fin, libros: HAY_SUBSERIES ? serie.libros : null, n: utiles.length, serie: true, texto: serie.nombre}); continue; }
+    let libros = null;
+    utiles.forEach(p => { const suyos = librosDelAutor(p); libros = libros ? new Set([...libros].filter(i => suyos.has(i))) : suyos; });
+    // El autor solo cuenta como pista si lo anuncia «de», «con», «por»…: así un apellido no se confunde con otro título.
+    if (libros.size && anunciada) opciones.push({fin, libros, n: utiles.length, serie: false, texto});
+  }
+  return opciones;
+}
+
 /* ───────────── Segmentación del dictado ───────────── */
-// Convierte un renglón en piezas: cada palabra recuerda si venía después de coma o punto
-// y si es una palabra separadora («y», «luego», «siguiente», «otro»).
-function piezasDe(renglon) {
+// Convierte el dictado en piezas: cada palabra recuerda si venía después de coma o punto (trasSigno),
+// si empieza un renglón nuevo (trasSalto: cada pausa del micrófono abre renglón) y si es una palabra
+// separadora («y», «luego», «siguiente», «otro»).
+function piezasDe(texto) {
   const piezas = [];
-  let trasSigno = false;
-  (renglon.match(/[,.;:]+|[^\s,.;:]+/g) || []).forEach(trozo => {
-    if (/^[,.;:]/.test(trozo)) { trasSigno = true; return; }
+  let trasSigno = false, trasSalto = false;
+  (texto.match(/[,.;:\n]+|[^\s,.;:]+/g) || []).forEach(trozo => {
+    if (/^[,.;:\n]/.test(trozo)) { trasSigno = true; trasSalto = trasSalto || trozo.includes('\n'); return; }
     palabras(trozo).forEach((p, k) => {
-      piezas.push({p, crudo: k ? '' : trozo, trasSigno: trasSigno && !k, separador: SEPARADORES.has(p)});
-      trasSigno = false;
+      piezas.push({p, crudo: k ? '' : trozo, trasSigno: trasSigno && !k, trasSalto: trasSalto && !k, separador: SEPARADORES.has(p)});
+      trasSigno = trasSalto = false;
     });
   });
   // El dictado a veces parte una palabra («des ocupado»): si juntas forman una palabra del catálogo, se unen.
   for (let i = 0; i + 1 < piezas.length; i++) {
     const [a, b] = [piezas[i], piezas[i + 1]];
     if (b.trasSigno || (parecidas(a.p).length && parecidas(b.p).length) || !VOCABULARIO.has(a.p + b.p)) continue;
-    piezas.splice(i, 2, {p: a.p + b.p, crudo: `${a.crudo} ${b.crudo}`.trim(), trasSigno: a.trasSigno, separador: false});
+    piezas.splice(i, 2, {p: a.p + b.p, crudo: `${a.crudo} ${b.crudo}`.trim(), trasSigno: a.trasSigno, trasSalto: a.trasSalto, separador: false});
   }
   return piezas;
 }
 
-// Parte un renglón en títulos buscando la combinación que mejor cubre lo dictado
-// con títulos del catálogo (los más largos y completos ganan). Devuelve [{dicho, cands, solo, limpio}]:
-// «solo» = el título quedó delimitado por separadores; «limpio» = en su tramo no sobraron palabras.
+// Parte el dictado en títulos buscando la combinación que mejor lo cubre con títulos del catálogo
+// (los más largos y completos ganan). Después de cada título puede venir su pista (autor o subserie),
+// que deja solo los registros que la cumplen. Devuelve [{dicho, cands, solo, limpio, nota}]:
+// «solo» = el título quedó delimitado por pausas o separadores; «limpio» = en su tramo no sobraron palabras.
 function partir(piezas) {
   const n = piezas.length, valor = new Array(n + 1).fill(0), paso = new Array(n);
+  const pistas = piezas.map((_, j) => pistasDesde(piezas, j));
   for (let i = n - 1; i >= 0; i--) {
     valor[i] = valor[i + 1];
-    paso[i] = {fin: i + 1, cands: null};
+    paso[i] = {fin: i + 1, cands: null, nota: ''};
     let signos = 0;
+    const probar = (fin, cands, extra, nota) => {
+      const total = extra + valor[fin];
+      if (total > valor[i]) { valor[i] = total; paso[i] = {fin, cands: cands.slice(0, 3), nota}; }
+    };
     for (let j = i + 1; j <= Math.min(n, i + MAX_PALABRAS); j++) {
+      if (j - 1 > i && piezas[j - 1].trasSalto) break;   // un título no continúa en el renglón siguiente; su pista sí puede
       if (j - 1 > i && piezas[j - 1].trasSigno) signos++;
       const tramo = piezas.slice(i, j);
-      const {peso, cands} = puntuar(tramo.map(x => x.p));
-      if (!cands.length || cands[0].q < UMBRAL_DUDA) continue;
+      const {peso, cands} = candidatos(tramo.map(x => x.p));
+      if (!cands.length) continue;
       // Una palabra separadora en la orilla es un separador, salvo que el título dictado sea casi exacto.
       if ((tramo[0].separador || tramo[tramo.length - 1].separador) && cands[0].q < 0.95) continue;
-      const total = peso * cands[0].q ** 2 * 0.95 ** signos - COSTO_POR_TITULO + valor[j];
-      if (total > valor[i]) { valor[i] = total; paso[i] = {fin: j, cands}; }
+      // Lo mismo para un tramo hecho solo de palabras de enlace o de anuncio («de la serie», «del autor»).
+      if (tramo.every(x => ANUNCIOS.has(x.p) || ENLACES.has(x.p)) && cands[0].q < 0.95) continue;
+      const base = q => peso * q ** 2 * 0.95 ** signos - COSTO_POR_TITULO;
+      const parecido = cands[0].q >= UMBRAL_DUDA;
+      if (parecido) probar(j, cands, base(cands[0].q), '');
+      (j < n ? pistas[j] : []).forEach(pista => {
+        // Si esas palabras ya son parte del título («Luna de hueso»), no son una pista.
+        const completo = candidatos(piezas.slice(i, pista.fin).map(x => x.p)).cands[0];
+        if (completo && completo.q >= UMBRAL_CLARO && completo.q >= cands[0].q) return;
+        const suyos = pista.libros ? cands.filter(c => pista.libros.has(c.i) && c.q >= UMBRAL_CON_PISTA) : [];
+        if (suyos.length) {            // la pista coincide: solo quedan los registros de ese autor o subserie
+          const afinados = suyos.map(c => ({i: c.i, q: Math.min(1, c.q + AYUDA_DE_PISTA), firme: true}));
+          probar(pista.fin, afinados, base(afinados[0].q) + VALOR_PISTA * pista.n, '');
+        } else if (parecido && !pista.libros) {   // subserie reconocida, sin datos de subserie en el Registro cargado
+          probar(pista.fin, cands, base(cands[0].q) + VALOR_PISTA * pista.n, '');
+        } else if (parecido) {                    // se dijo un autor o subserie que ningún registro parecido tiene
+          // (el nombre de una subserie no se confunde con un título; un apellido sí, por eso vale la mitad)
+          probar(pista.fin, cands, base(cands[0].q) + VALOR_PISTA * pista.n / (pista.serie ? 1 : 2), `Dijiste «${pista.texto}», pero ningún registro parecido lo tiene como autor o subserie.`);
+        }
+      });
     }
   }
   const segmentos = [];
   let suelto = null;   // palabras seguidas sin coincidencia: se juntan en un solo «no encontrado»
-  let tramoActual = 0; // cambia en cada coma, punto o palabra separadora
+  let tramoActual = 0; // cambia en cada pausa o palabra separadora
   for (let i = 0; i < n; i = paso[i].fin) {
     if (piezas[i].trasSigno) { tramoActual++; suelto = null; }
     const dicho = piezas.slice(i, paso[i].fin).map(x => x.crudo).filter(Boolean).join(' ');
-    if (paso[i].cands) { segmentos.push({dicho, cands: paso[i].cands, tramo: tramoActual}); suelto = null; }
+    if (paso[i].cands) { segmentos.push({dicho, cands: paso[i].cands, nota: paso[i].nota, tramo: tramoActual}); suelto = null; }
     else if (piezas[i].separador) { tramoActual++; suelto = null; }
     else if (suelto) suelto.dicho += ' ' + dicho;
-    else segmentos.push(suelto = {dicho, cands: [], tramo: tramoActual});
+    else segmentos.push(suelto = {dicho, cands: [], nota: '', tramo: tramoActual});
   }
   segmentos.forEach(s => {
     const vecinos = segmentos.filter(x => x.tramo === s.tramo);
@@ -309,18 +398,19 @@ function partir(piezas) {
 }
 
 // De un segmento a un renglón de la tanda: asignado, en duda (se muestran los candidatos) o no encontrado.
-// En un dictado de corrido solo se asigna sin preguntar lo que coincide con firmeza y sin palabras sobrantes.
-function filaDe({dicho, cands, solo, limpio}) {
-  const fila = {dicho, estado: 'no', id: null, cands: [], ubicado: false};
-  if (!cands.length || cands[0].q < UMBRAL_DUDA) return fila;
+// En un dictado de corrido solo se asigna sin preguntar lo que coincide con firmeza y sin palabras sobrantes;
+// si la pista dictada no coincide con ningún registro parecido, siempre se pregunta.
+function filaDe({dicho, cands, solo, limpio, nota}) {
+  const fila = {dicho, estado: 'no', id: null, cands: [], ubicado: false, nota};
+  if (!cands.length) return fila;
   fila.cands = cands.filter(c => c.q >= cands[0].q - 0.25).map(c => LIBROS[c.i].id);
-  const claro = cands[0].q >= UMBRAL_CLARO && (cands.length < 2 || cands[0].q - cands[1].q >= MARGEN) && (solo || (limpio && cands[0].firme));
+  const claro = !nota && cands[0].q >= UMBRAL_CLARO && (cands.length < 2 || cands[0].q - cands[1].q >= MARGEN) && (solo || (limpio && cands[0].firme));
   fila.estado = claro ? 'ok' : 'duda';
   if (claro) fila.id = fila.cands[0];
   return fila;
 }
 
-const identificarTexto = texto => texto.split(/\n+/).flatMap(renglon => partir(piezasDe(renglon))).map(filaDe);
+const identificarTexto = texto => partir(piezasDe(texto)).map(filaDe);
 
 /* ───────────── Memoria del celular ───────────── */
 function leer(clave, porDefecto) {
@@ -451,7 +541,7 @@ function filaHTML(tanda, f) {
     const libros = f.cands.map(id => POR_ID.get(id)).filter(Boolean);
     const iguales = libros.length > 1 && libros.every(b => b.clave === libros[0].clave);
     return `<li class="fila duda" data-n="${n}">
-      <p>Dictaste «${esc(f.dicho)}». ${iguales ? `Hay ${libros.length} registros con este título. ` : ''}Toca el libro correcto:</p>
+      <p>Dictaste «${esc(f.dicho)}». ${f.nota ? esc(f.nota) + ' ' : ''}${iguales ? `Hay ${libros.length} registros con este título. ` : ''}Toca el libro correcto:</p>
       ${libros.map(b => `<button class="cand" data-accion="elegir" data-id="${b.id}">${portadaHTML(b)}<span class="cuerpo">${lugarHTML(b)}${datosHTML(b)}</span></button>`).join('')}
       <button class="cand ninguno" data-accion="ninguno">Ninguno de estos</button></li>`;
   }
@@ -525,7 +615,11 @@ $('lista').addEventListener('click', e => {
 
 $('etiquetas').addEventListener('click', () => exportarEtiquetas(tandaActual()));
 $('identificar').addEventListener('click', identificar);
-$('borrar').addEventListener('click', () => { $('dictado').value = ''; $('dictado').focus(); });
+$('borrar').addEventListener('click', () => {
+  $('dictado').value = '';
+  Object.assign(dictador, {base: '', desde: dictador.vistos});
+  if (!dictador.quiere) $('dictado').focus();   // con el micrófono encendido no se abre el teclado
+});
 $('porEstante').addEventListener('change', e => {
   ajustes.porEstante = e.target.checked;
   guardar('bv-tandas-ajustes', ajustes);
@@ -562,31 +656,92 @@ $('nueva').addEventListener('click', () => {
   $('captura').scrollIntoView();
 });
 
-/* ───────────── Dictado con el reconocimiento de voz del navegador ───────────── */
+/* ───────────── Micrófono sostenido (reconocimiento de voz del navegador) ───────────── */
+// El navegador corta el reconocimiento cuando deja de oír voz. Aquí se vuelve a encender solo,
+// una y otra vez, hasta que el maestro lo apaga; por eso aguanta las pausas entre libro y libro.
 const Reconocedor = window.SpeechRecognition || window.webkitSpeechRecognition;
-let reconocedor = null, dictando = false;
-function detenerDictado() { if (dictando) reconocedor.stop(); }
+const SILENCIO_MAXIMO = 5 * 60000;   // sin oír nada durante este tiempo, se apaga para cuidar la batería
+const FALLOS_MAXIMOS = 4;            // intentos seguidos con error antes de rendirse
+const EN_ANDROID = /Android/i.test(navigator.userAgent);
+const dictador = {quiere: false, activo: false, base: '', desde: 0, vistos: 0, fallos: 0, ultimaVoz: 0, reloj: 0, motivo: ''};
+let reconocedor = null;
+
+function pintarMicrofono(provisional) {
+  $('microfono').textContent = dictador.quiere ? '⏹ Apagar micrófono' : '🎤 Encender micrófono';
+  $('microfono').classList.toggle('activo', dictador.quiere);
+  $('estadoMic').hidden = !dictador.quiere;
+  $('estadoMic').textContent = provisional ? `🔴 Escuchando: ${provisional}…` : '🔴 Micrófono encendido. Puedes hacer pausas; sigue escuchando hasta que lo apagues.';
+}
+function arrancarDictado() {
+  clearTimeout(dictador.reloj);
+  if (!dictador.quiere || dictador.activo || document.visibilityState !== 'visible') return;
+  try { reconocedor.start(); }
+  catch (e) { dictador.reloj = setTimeout(arrancarDictado, 600); }   // todavía se estaba cerrando la escucha anterior
+}
+function detenerDictado(aviso) {
+  if (!reconocedor) return;
+  const estaba = dictador.quiere;
+  dictador.quiere = false;
+  clearTimeout(dictador.reloj);
+  if (dictador.activo) reconocedor.stop();
+  pintarMicrofono();
+  if (estaba && aviso) avisar(aviso);
+}
 if (Reconocedor) {
   reconocedor = new Reconocedor();
-  Object.assign(reconocedor, {lang: 'es-MX', continuous: true, interimResults: false});
+  // En Android los resultados provisionales llegan marcados como definitivos y duplican el texto: se piden solo los definitivos.
+  Object.assign(reconocedor, {lang: 'es-MX', continuous: true, interimResults: !EN_ANDROID, maxAlternatives: 1});
+  reconocedor.onstart = () => {
+    Object.assign(dictador, {activo: true, base: $('dictado').value, desde: 0, vistos: 0, motivo: ''});
+    pintarMicrofono();
+  };
   reconocedor.onresult = e => {
-    for (let k = e.resultIndex; k < e.results.length; k++) {
-      if (!e.results[k].isFinal) continue;
-      const caja = $('dictado'), frase = e.results[k][0].transcript.trim();
-      if (frase) caja.value += (caja.value && !caja.value.endsWith('\n') ? '\n' : '') + frase;
-      caja.scrollTop = caja.scrollHeight;
+    const frases = [];
+    let provisional = '';
+    for (let k = dictador.desde; k < e.results.length; k++) {
+      const frase = e.results[k][0].transcript.trim();
+      if (!frase) continue;
+      if (!e.results[k].isFinal) { provisional += ' ' + frase; continue; }
+      // Algunos celulares repiten lo ya dicho y le agregan lo nuevo: se conserva solo la versión más larga.
+      const previa = frases.length ? palabras(frases[frases.length - 1]).join(' ') : null;
+      if (previa !== null && (palabras(frase).join(' ') + ' ').startsWith(previa + ' ')) frases[frases.length - 1] = frase;
+      else frases.push(frase);
     }
+    dictador.vistos = e.results.length;
+    dictador.ultimaVoz = Date.now();
+    dictador.fallos = 0;
+    const caja = $('dictado'), base = dictador.base;
+    caja.value = base + (base && frases.length && !base.endsWith('\n') ? '\n' : '') + frases.join('\n');   // cada pausa = renglón nuevo
+    caja.scrollTop = caja.scrollHeight;
+    pintarMicrofono(provisional.trim());
   };
   reconocedor.onerror = e => {
-    if (e.error === 'not-allowed' || e.error === 'service-not-allowed') avisar('El navegador no tiene permiso para usar el micrófono. Usa el micrófono del teclado.');
-    else if (e.error !== 'no-speech' && e.error !== 'aborted') avisar('El dictado del navegador falló. Usa el micrófono del teclado.');
+    if (e.error === 'no-speech' || e.error === 'aborted') return;   // silencio: se vuelve a encender solo
+    dictador.motivo = e.error;
+    dictador.fallos++;
   };
-  reconocedor.onstart = () => { dictando = true; $('microfono').textContent = '⏹ Detener dictado'; $('microfono').classList.add('activo'); };
-  reconocedor.onend = () => { dictando = false; $('microfono').textContent = '🎤 Dictar aquí'; $('microfono').classList.remove('activo'); };
+  reconocedor.onend = () => {
+    dictador.activo = false;
+    if (!dictador.quiere) return;
+    const sinPermiso = ['not-allowed', 'service-not-allowed', 'audio-capture'].includes(dictador.motivo);
+    if (sinPermiso) return detenerDictado('El navegador no tiene permiso para usar el micrófono. Permítelo en el candado de la barra de dirección, o usa el micrófono del teclado.');
+    if (dictador.fallos >= FALLOS_MAXIMOS) return detenerDictado(dictador.motivo === 'network'
+      ? 'El micrófono de la app necesita internet y no hay conexión. Usa el micrófono del teclado.'
+      : 'El micrófono de la app falló varias veces. Usa el micrófono del teclado.');
+    if (Date.now() - dictador.ultimaVoz > SILENCIO_MAXIMO) return detenerDictado('Apagué el micrófono: pasaron 5 minutos sin oír nada.');
+    pintarMicrofono();
+    dictador.reloj = setTimeout(arrancarDictado, 250);
+  };
+  // Si se corrige el texto a mano mientras escucha, lo corregido se respeta y lo siguiente se agrega después.
+  $('dictado').addEventListener('input', () => { if (dictador.activo) Object.assign(dictador, {base: $('dictado').value, desde: dictador.vistos}); });
+  // El celular apaga el micrófono al cambiar de app o bloquear la pantalla; al volver se enciende otra vez.
+  document.addEventListener('visibilitychange', () => { if (dictador.quiere) { dictador.ultimaVoz = Date.now(); arrancarDictado(); } });
   $('microfono').hidden = false;
   $('microfono').addEventListener('click', () => {
-    if (dictando) return reconocedor.stop();
-    try { reconocedor.start(); } catch (e) { avisar('No pude iniciar el dictado del navegador.'); }
+    if (dictador.quiere) return detenerDictado();
+    Object.assign(dictador, {quiere: true, fallos: 0, ultimaVoz: Date.now(), motivo: ''});
+    pintarMicrofono();
+    arrancarDictado();
   });
 }
 
