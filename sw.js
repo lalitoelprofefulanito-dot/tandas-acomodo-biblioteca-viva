@@ -1,6 +1,6 @@
 // Tandas de acomodo · Biblioteca Viva — funcionamiento sin internet.
 // Guarda la página y cada portada que se va mostrando.
-const CACHE = 'tandas-bv-2026-11-13-1794-v4';
+const CACHE = 'tandas-bv-2026-11-13-1794-v5';
 
 self.addEventListener('install', e => {
   self.skipWaiting();
@@ -19,9 +19,10 @@ self.addEventListener('fetch', e => {
     if (r.ok) { const copia = r.clone(); caches.open(CACHE).then(c => c.put(e.request, copia)); }
     return r;
   };
-  // La página: primero la red (para recibir actualizaciones); sin internet, la copia guardada.
+  // La página: primero la red, sin usar la copia temporal del navegador (así una versión nueva subida a GitHub
+  // se ve en cuanto GitHub la publica); sin internet, la copia guardada.
   // Las portadas: primero la copia guardada; si no existe, se descarga y se guarda.
   e.respondWith(e.request.mode === 'navigate'
-    ? fetch(e.request).then(guardar).catch(() => caches.match(e.request).then(r => r || caches.match('./index.html')))
+    ? fetch(new Request(e.request.url, {cache: 'no-cache'})).then(guardar).catch(() => caches.match(e.request).then(r => r || caches.match('./index.html')))
     : caches.match(e.request).then(r => r || fetch(e.request).then(guardar)));
 });
