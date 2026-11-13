@@ -34,7 +34,7 @@ LADO_MAXIMO = 420
 CALIDAD_JPEG = 72
 MARCA_INICIO = "/*DATOS-INICIO*/"
 MARCA_FIN = "/*DATOS-FIN*/"
-VERSION_APP = "v3"  # cambia cuando cambia el código de index.html, para que los celulares renueven su copia
+VERSION_APP = "v4"  # cambia cuando cambia el código de index.html, para que los celulares renueven su copia
 
 NS_HOJA = "{http://schemas.openxmlformats.org/spreadsheetml/2006/main}"
 NS_REL_DOC = "{http://schemas.openxmlformats.org/officeDocument/2006/relationships}"
