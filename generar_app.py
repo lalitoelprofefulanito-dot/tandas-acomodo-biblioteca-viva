@@ -17,6 +17,7 @@ Qué hace:
 Requiere: Python 3.9+, openpyxl y Pillow  (pip install openpyxl pillow)
 """
 import io
+import hashlib
 import json
 import posixpath
 import re
@@ -34,7 +35,7 @@ LADO_MAXIMO = 420
 CALIDAD_JPEG = 72
 MARCA_INICIO = "/*DATOS-INICIO*/"
 MARCA_FIN = "/*DATOS-FIN*/"
-VERSION_APP = "v5"  # cambia cuando cambia el código de index.html, para que los celulares renueven su copia
+VERSION_APP = "v7"  # cambia cuando cambia el código de index.html, para que los celulares renueven su copia
 
 NS_HOJA = "{http://schemas.openxmlformats.org/spreadsheetml/2006/main}"
 NS_REL_DOC = "{http://schemas.openxmlformats.org/officeDocument/2006/relationships}"
@@ -217,7 +218,9 @@ def main():
     acervo.sort(key=lambda libro_: libro_[0])
 
     fecha = fecha_de_datos(ruta_excel)
-    bloque = (f"{MARCA_INICIO}\nconst FECHA_DATOS = {json.dumps(fecha)};\nconst ACERVO = "
+    # Huella de las portadas: cambia si cambia cualquier imagen, así el celular no muestra una portada vieja guardada.
+    huella = hashlib.sha1(b"".join(p.read_bytes() for p in sorted(carpeta_portadas.glob("*.jpg")))).hexdigest()[:10]
+    bloque = (f"{MARCA_INICIO}\nconst FECHA_DATOS = {json.dumps(fecha)};\nconst VERSION_PORTADAS = {json.dumps(huella)};\nconst ACERVO = "
               + json.dumps(acervo, ensure_ascii=False, separators=(",", ":")).replace("</", "<\\/")
               + f";\n{MARCA_FIN}")
     inicio, fin = pagina.index(MARCA_INICIO), pagina.index(MARCA_FIN) + len(MARCA_FIN)
