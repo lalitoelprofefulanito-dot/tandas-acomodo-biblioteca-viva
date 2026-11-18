@@ -196,7 +196,10 @@ const PESO_DESCONOCIDA = 5;                 // palabra dictada que no se parece 
 const UMBRAL_CLARO = 0.7;                   // puntuación para asignar sin preguntar
 const UMBRAL_DUDA = 0.45;                   // por debajo de esto: «no encontrado»
 const MARGEN = 0.1;                         // ventaja mínima sobre el segundo candidato
-const MAX_PALABRAS = 16;                    // título dictado más largo que se intenta
+const MAX_PALABRAS = 16;                    // título dictado más largo que se intenta con cualquier palabra
+// Los pocos títulos más largos se intentan completos solo mientras lo dictado coincide palabra por palabra con su inicio.
+const TITULOS_LARGOS = LIBROS.map(b => b.clave).filter(c => c.split(' ').length > MAX_PALABRAS);
+const MAX_LARGO = Math.max(MAX_PALABRAS, ...TITULOS_LARGOS.map(c => c.split(' ').length));
 const COSTO_POR_TITULO = 1.5;               // favorece pocos títulos largos sobre muchos pedazos
 const UMBRAL_CON_PISTA = 0.3;               // con autor o subserie dichos, basta un título menos parecido
 const AYUDA_DE_PISTA = 0.15;                // cuánto sube la puntuación cuando la pista coincide
@@ -362,10 +365,14 @@ function partir(piezas) {
       const total = extra + valor[fin];
       if (total > valor[i]) { valor[i] = total; paso[i] = {fin, cands: recortar(cands), nota}; }
     };
-    for (let j = i + 1; j <= Math.min(n, i + MAX_PALABRAS); j++) {
+    for (let j = i + 1; j <= Math.min(n, i + MAX_LARGO); j++) {
       if (j - 1 > i && piezas[j - 1].trasSalto) break;   // un título no continúa en el renglón siguiente; su pista sí puede
       if (j - 1 > i && piezas[j - 1].trasSigno) signos++;
       const tramo = piezas.slice(i, j);
+      if (j - i > MAX_PALABRAS) {
+        const inicio = tramo.map(x => x.p).join(' ') + ' ';
+        if (!TITULOS_LARGOS.some(c => (c + ' ').startsWith(inicio))) break;
+      }
       const {peso, cands} = candidatos(tramo.map(x => x.p));
       if (!cands.length) continue;
       // Una palabra separadora en la orilla es un separador, salvo que el título dictado sea casi exacto.
