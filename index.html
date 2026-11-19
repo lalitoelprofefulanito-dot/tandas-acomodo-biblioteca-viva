@@ -61,16 +61,14 @@ ol{list-style:none;margin:12px 0 0;padding:0}
 #noencontrados{margin-top:14px;border:2px dashed var(--rojo);border-radius:12px;padding:12px}
 #noencontrados h3{margin:0 0 6px;font-size:1.05rem;color:var(--rojo)}
 #noencontrados li{font-size:1.15rem;padding:4px 0}
+#noencontrados li.leyendo{outline:4px solid var(--teal2);outline-offset:2px;border-radius:8px}
 #cerrada{font-weight:700;color:var(--verde);margin-top:12px}
 summary{font-weight:800;font-size:1.1rem;color:var(--teal);min-height:44px;display:flex;align-items:center;cursor:pointer}
 .marcas{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:10px 0}
 .marca{border:1px solid var(--borde);border-radius:10px;padding:10px;text-align:center}
 .marca b{display:block;font-size:1.5rem;color:var(--teal)}
 .marca span{font-size:.8rem;color:var(--gris)}
-#tandas li{border-top:1px solid var(--borde)}
-#tandas button{display:block;width:100%;text-align:left;background:none;border:0;padding:10px 4px;font-size:.9rem;color:inherit;cursor:pointer}
-#tandas button:active{background:#e6f2f1}
-#tandas .abrir{float:right;color:var(--teal);font-weight:700}
+#tandas li{padding:8px 0;border-top:1px solid var(--borde);font-size:.9rem}
 select{min-height:52px;border:2px solid var(--teal2);border-radius:12px;padding:6px 10px;background:#fff;width:100%;margin-top:10px}
 #aviso{position:fixed;left:12px;right:12px;bottom:calc(16px + env(safe-area-inset-bottom));background:#111;color:#fff;padding:14px 16px;border-radius:12px;font-weight:600;text-align:center;z-index:9;box-shadow:0 4px 16px rgba(0,0,0,.4)}
 </style>
@@ -96,6 +94,7 @@ select{min-height:52px;border:2px solid var(--teal2);border-radius:12px;padding:
   <section id="resultado" hidden>
     <h2>2. Dónde va cada libro</h2>
     <p id="resumen"></p>
+    <p id="cuadre" class="alerta" hidden></p>
     <button id="etiquetas" hidden>📄 Descargar Excel de etiquetas</button>
     <div id="voz">
       <div class="voz">
@@ -126,7 +125,6 @@ select{min-height:52px;border:2px solid var(--teal2);border-radius:12px;padding:
       <div class="marca"><b id="marcaPromedio">—</b><span>Promedio · libros por tanda</span></div>
     </div>
     <p id="marcaTotales" class="ayuda"></p>
-    <p id="ayudaTandas" class="ayuda" hidden>Toca una tanda para volver a abrir su lista en la pantalla principal.</p>
     <ol id="tandas"></ol>
     <select id="alcance" aria-label="Qué tandas incluye el informe">
       <option value="hoy">Informe de las tandas de hoy</option>
@@ -358,6 +356,15 @@ function recortar(cands) {
   return cands.filter((c, k) => k < 3 || claves.has(LIBROS[c.i].clave));
 }
 
+// Verdadero si alguna palabra del título aparece en lo dictado más veces que en el título:
+// es el mismo libro dicho dos veces seguidas (dos ejemplares), que debe dar dos renglones.
+function repiteTitulo(tramo, libro) {
+  const enTitulo = new Map(), dichas = new Map();
+  libro.clave.split(' ').forEach(p => enTitulo.set(p, (enTitulo.get(p) || 0) + 1));
+  tramo.forEach(x => { if (enTitulo.has(x.p) && !ENLACES.has(x.p)) dichas.set(x.p, (dichas.get(x.p) || 0) + 1); });
+  return [...dichas].some(([p, n]) => n > enTitulo.get(p));
+}
+
 function partir(piezas) {
   const n = piezas.length, valor = new Array(n + 1).fill(0), paso = new Array(n);
   const pistas = piezas.map((_, j) => pistasDesde(piezas, j));
@@ -379,6 +386,7 @@ function partir(piezas) {
       }
       const {peso, cands} = candidatos(tramo.map(x => x.p));
       if (!cands.length) continue;
+      if (repiteTitulo(tramo, LIBROS[cands[0].i])) continue;   // «Mafalda 4 Mafalda 4» son dos ejemplares, no un título
       // Una palabra separadora en la orilla es un separador, salvo que el título dictado sea casi exacto.
       if ((tramo[0].separador || tramo[tramo.length - 1].separador) && cands[0].q < 0.95) continue;
       // Lo mismo para un tramo hecho solo de palabras de enlace o de anuncio («de la serie», «del autor»).
@@ -566,6 +574,9 @@ function filasVisibles(tanda) {
   return filas.sort((x, y) => { const a = lugar(x), b = lugar(y); return a[0] - b[0] || a[1] - b[1] || a[2] - b[2]; });
 }
 
+// Lo que lee la voz: los renglones de la lista y, al final, los no encontrados (para que ninguno pase sin oírse).
+const filasLectura = tanda => [...filasVisibles(tanda), ...tanda.filas.filter(f => f.estado === 'no').reverse()];
+
 function filaHTML(tanda, f) {
   const n = tanda.filas.indexOf(f);
   if (f.estado === 'duda') {
@@ -599,15 +610,21 @@ function pintar() {
     $('resumen').textContent = `${ok} ${ok === 1 ? 'libro identificado' : 'libros identificados'}`
       + (duda ? ` · ${duda} por decidir` : '') + (no.length ? ` · ${no.length} no ${no.length === 1 ? 'encontrado' : 'encontrados'}` : '')
       + (ajustes.porEstante ? ' · ordenados por estante' : ' · del último dictado al primero');
+    // Cada pausa del micrófono abre un renglón (un libro). Si hay más renglones que libros, alguno se juntó con otro.
+    // No cuentan los renglones que empiezan como pista («de Pasos de luna», «con…»): son el autor o la subserie del anterior.
+    const renglones = tanda.texto.split('\n').map(palabras)
+      .filter(r => r.some(p => !ENLACES.has(p) && !SEPARADORES.has(p)) && !(ANUNCIOS.has(r[0]) && !ARTICULOS.has(r[0]))).length;
+    $('cuadre').hidden = renglones <= tanda.filas.length;
+    $('cuadre').textContent = `⚠ Dictaste ${renglones} renglones y salieron ${tanda.filas.length} libros. Revisa si falta alguno; si son ejemplares repetidos, dicta «siguiente» entre ellos.`;
     $('lista').innerHTML = filasVisibles(tanda).map(f => filaHTML(tanda, f)).join('');
     $('noencontrados').hidden = !no.length;
     $('etiquetas').hidden = hayDudas(tanda);
-    $('listaNo').innerHTML = no.slice().reverse().map(f => `<li>«${esc(f.dicho)}»</li>`).join('');
+    $('listaNo').innerHTML = no.slice().reverse().map(f => `<li data-n="${tanda.filas.indexOf(f)}">«${esc(f.dicho)}»</li>`).join('');
     const ubicados = tanda.filas.filter(f => f.ubicado).length;
     $('cerrada').hidden = !tanda.fin;
     if (tanda.fin) $('cerrada').textContent = `Tanda acomodada el ${fechaHora(tanda.fin)}: ${ubicados} ${ubicados === 1 ? 'libro' : 'libros'} en ${duracion(tanda.fin - tanda.inicio)}.`;
     $('cerrar').hidden = $('corregir').hidden = !!tanda.fin;
-    $('nueva').textContent = tanda.fin ? 'Nueva tanda' : tanda.previo ? 'Dejarla como estaba y empezar otra' : 'Descartar y empezar otra';
+    $('nueva').textContent = tanda.fin ? 'Nueva tanda' : 'Descartar y empezar otra';
   }
   pintarHistorial();
 }
@@ -665,7 +682,6 @@ $('cerrar').addEventListener('click', () => {
   const tanda = tandaActual();
   detenerLectura();
   tanda.fin = Date.now();
-  delete tanda.previo;   // si era una tanda reabierta, queda guardada con esta nueva hora
   tanda.filas.forEach(f => { f.ubicado = f.estado === 'ok'; });
   guardarMemoria();
   pintar();
@@ -681,7 +697,7 @@ $('corregir').addEventListener('click', () => {
 $('nueva').addEventListener('click', () => {
   const tanda = tandaActual();
   detenerLectura();
-  if (!tanda.fin) descartarAbierta(tanda);
+  if (!tanda.fin) memoria.tandas.pop();   // una tanda sin marcar como acomodada no entra al historial
   memoria.enPantalla = false;
   guardarMemoria();
   $('dictado').value = '';
@@ -736,8 +752,9 @@ if (Reconocedor) {
       if (!frase) continue;
       if (!e.results[k].isFinal) { provisional += ' ' + frase; continue; }
       // Algunos celulares repiten lo ya dicho y le agregan lo nuevo: se conserva solo la versión más larga.
-      const previa = frases.length ? palabras(frases[frases.length - 1]).join(' ') : null;
-      if (previa !== null && (palabras(frase).join(' ') + ' ').startsWith(previa + ' ')) frases[frases.length - 1] = frase;
+      // Una frase idéntica a la anterior no es repetición del celular: es otro ejemplar del mismo libro y se conserva.
+      const previa = frases.length ? palabras(frases[frases.length - 1]).join(' ') : null, nueva = palabras(frase).join(' ');
+      if (previa !== null && nueva.length > previa.length && (nueva + ' ').startsWith(previa + ' ')) frases[frases.length - 1] = frase;
       else frases.push(frase);
     }
     dictador.vistos = e.results.length;
@@ -790,6 +807,7 @@ function vozEnEspanol() {
 }
 function textoHablado(f) {
   if (f.estado === 'duda') return `Sin decidir: ${f.dicho}.`;
+  if (f.estado === 'no') return `No encontrado en el Registro: ${f.dicho}.`;
   const b = POR_ID.get(f.id);
   if (!b) return '';
   const lugar = `${b.anaquel}, ${b.entrepano}.`, alerta = avisoDeLugar(b);
@@ -799,10 +817,10 @@ function textoHablado(f) {
 }
 function marcarLeyendo() {
   const tanda = tandaActual();
-  document.querySelectorAll('.fila.leyendo').forEach(li => li.classList.remove('leyendo'));
+  document.querySelectorAll('#resultado .leyendo').forEach(li => li.classList.remove('leyendo'));
   $('pausa').textContent = lector.leyendo ? '⏸ Pausar' : '▶ Continuar';
   if (!tanda || !lector.leyendo) return;
-  const li = $('lista').querySelector(`[data-n="${tanda.filas.indexOf(filasVisibles(tanda)[lector.pos])}"]`);
+  const li = document.querySelector(`#resultado [data-n="${tanda.filas.indexOf(filasLectura(tanda)[lector.pos])}"]`);
   if (li) { li.classList.add('leyendo'); li.scrollIntoView({block: 'center', behavior: 'smooth'}); }
 }
 function detenerLectura() {
@@ -814,9 +832,9 @@ function detenerLectura() {
   marcarLeyendo();
 }
 function leerDesde(pos) {
-  const tanda = tandaActual(), filas = filasVisibles(tanda);
+  const tanda = tandaActual(), filas = filasLectura(tanda);
   detenerLectura();
-  if (!filas.length) return avisar('No hay libros identificados para leer.');
+  if (!filas.length) return avisar('No hay libros para leer.');
   lector.pos = Math.max(0, Math.min(pos, filas.length - 1));
   lector.leyendo = true;
   const frase = new SpeechSynthesisUtterance(textoHablado(filas[lector.pos]));
@@ -863,58 +881,9 @@ function pintarHistorial() {
   $('marcaTotales').textContent = tandas.length
     ? `${tandas.length} ${tandas.length === 1 ? 'tanda' : 'tandas'} · ${libros} libros ubicados · ritmo promedio: ${porMinuto(libros, tiempo).toFixed(1)} libros por minuto`
     : 'Todavía no hay tandas guardadas.';
-  $('ayudaTandas').hidden = !tandas.length;
   $('tandas').innerHTML = tandas.slice().reverse().map(t =>
-    `<li><button data-i="${memoria.tandas.indexOf(t)}"><span class="abrir">Abrir ›</span><b>${fechaHora(t.fin)}</b> · ${ubicadosDe(t)} libros · ${duracion(t.fin - t.inicio)} · ${porMinuto(ubicadosDe(t), t.fin - t.inicio).toFixed(1)} libros/min</button></li>`).join('');
+    `<li><b>${fechaHora(t.fin)}</b> · ${ubicadosDe(t)} libros · ${duracion(t.fin - t.inicio)} · ${porMinuto(ubicadosDe(t), t.fin - t.inicio).toFixed(1)} libros/min</li>`).join('');
 }
-
-/* ───────────── Volver a abrir una tanda del historial ───────────── */
-// La tanda guardada vuelve a la pantalla principal como recién dictada: con su lista, la lectura en voz alta,
-// el botón del Excel de etiquetas y «✓ Tanda acomodada». Es la misma tanda: al acomodarla otra vez se guarda
-// con la nueva hora. Si se deja sin acomodar, vuelve al historial tal como estaba.
-function descartarAbierta(tanda) {
-  const i = memoria.tandas.indexOf(tanda);
-  if (tanda.previo) {
-    const {inicio, fin, ubicados} = tanda.previo;
-    Object.assign(tanda, {inicio, fin});
-    tanda.filas.forEach((f, k) => { f.ubicado = ubicados[k]; });
-    delete tanda.previo;
-    memoria.tandas.splice(i, 1);
-    const despues = memoria.tandas.findIndex(t => t.fin && t.fin > fin);   // regresa a su lugar por fecha
-    memoria.tandas.splice(despues < 0 ? memoria.tandas.length : despues, 0, tanda);
-  } else memoria.tandas.splice(i, 1);   // una tanda sin marcar como acomodada no entra al historial
-}
-let confirmaReabrir = {i: -1, ms: 0};
-$('tandas').addEventListener('click', e => {
-  const boton = e.target.closest('button[data-i]');
-  if (!boton) return;
-  const i = +boton.dataset.i, tanda = memoria.tandas[i], abierta = tandaActual();
-  if (!tanda) return;
-  if (abierta && !abierta.fin) {   // hay otra tanda sin acomodar en pantalla: se pide un segundo toque
-    if (confirmaReabrir.i !== i || Date.now() - confirmaReabrir.ms > 4000) {
-      confirmaReabrir = {i, ms: Date.now()};
-      return avisar(abierta.previo
-        ? 'La tanda en pantalla está reabierta sin acomodar. Toca otra vez para dejarla como estaba y abrir esta.'
-        : 'Hay una tanda dictada sin acomodar en pantalla. Toca otra vez para descartarla y abrir esta.');
-    }
-    descartarAbierta(abierta);
-  }
-  confirmaReabrir = {i: -1, ms: 0};
-  detenerLectura();
-  detenerDictado();
-  tanda.previo = {inicio: tanda.inicio, fin: tanda.fin, ubicados: tanda.filas.map(f => !!f.ubicado)};
-  Object.assign(tanda, {inicio: Date.now(), fin: null});
-  tanda.filas.forEach(f => { delete f.ubicado; });
-  memoria.tandas.splice(memoria.tandas.indexOf(tanda), 1);
-  memoria.tandas.push(tanda);   // la tanda en pantalla siempre es la última
-  memoria.enPantalla = true;
-  guardarMemoria();
-  $('dictado').value = tanda.texto;
-  lector.pos = 0;
-  pintar();
-  $('resultado').scrollIntoView();
-  avisar(`Tanda del ${fechaHora(tanda.previo.fin)} abierta otra vez. El Excel de etiquetas está en su botón.`);
-});
 
 function informe() {
   const hoy = new Date().toDateString();
