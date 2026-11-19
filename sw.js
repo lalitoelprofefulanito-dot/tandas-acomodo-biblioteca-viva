@@ -1,6 +1,6 @@
 // Tandas de acomodo · Biblioteca Viva — funcionamiento sin internet.
 // Guarda la página y cada portada que se va mostrando.
-const CACHE = 'tandas-bv-2026-11-19-1810-v12';
+const CACHE = 'tandas-bv-2026-11-19-1810-v13';
 
 self.addEventListener('install', e => {
   self.skipWaiting();

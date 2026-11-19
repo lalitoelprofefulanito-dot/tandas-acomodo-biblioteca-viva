@@ -67,7 +67,10 @@ summary{font-weight:800;font-size:1.1rem;color:var(--teal);min-height:44px;displ
 .marca{border:1px solid var(--borde);border-radius:10px;padding:10px;text-align:center}
 .marca b{display:block;font-size:1.5rem;color:var(--teal)}
 .marca span{font-size:.8rem;color:var(--gris)}
-#tandas li{padding:8px 0;border-top:1px solid var(--borde);font-size:.9rem}
+#tandas li{border-top:1px solid var(--borde)}
+#tandas button{display:block;width:100%;text-align:left;background:none;border:0;padding:10px 4px;font-size:.9rem;color:inherit;cursor:pointer}
+#tandas button:active{background:#e6f2f1}
+#tandas .abrir{float:right;color:var(--teal);font-weight:700}
 select{min-height:52px;border:2px solid var(--teal2);border-radius:12px;padding:6px 10px;background:#fff;width:100%;margin-top:10px}
 #aviso{position:fixed;left:12px;right:12px;bottom:calc(16px + env(safe-area-inset-bottom));background:#111;color:#fff;padding:14px 16px;border-radius:12px;font-weight:600;text-align:center;z-index:9;box-shadow:0 4px 16px rgba(0,0,0,.4)}
 </style>
@@ -123,6 +126,7 @@ select{min-height:52px;border:2px solid var(--teal2);border-radius:12px;padding:
       <div class="marca"><b id="marcaPromedio">—</b><span>Promedio · libros por tanda</span></div>
     </div>
     <p id="marcaTotales" class="ayuda"></p>
+    <p id="ayudaTandas" class="ayuda" hidden>Toca una tanda para volver a abrir su lista en la pantalla principal.</p>
     <ol id="tandas"></ol>
     <select id="alcance" aria-label="Qué tandas incluye el informe">
       <option value="hoy">Informe de las tandas de hoy</option>
@@ -603,7 +607,7 @@ function pintar() {
     $('cerrada').hidden = !tanda.fin;
     if (tanda.fin) $('cerrada').textContent = `Tanda acomodada el ${fechaHora(tanda.fin)}: ${ubicados} ${ubicados === 1 ? 'libro' : 'libros'} en ${duracion(tanda.fin - tanda.inicio)}.`;
     $('cerrar').hidden = $('corregir').hidden = !!tanda.fin;
-    $('nueva').textContent = tanda.fin ? 'Nueva tanda' : 'Descartar y empezar otra';
+    $('nueva').textContent = tanda.fin ? 'Nueva tanda' : tanda.previo ? 'Dejarla como estaba y empezar otra' : 'Descartar y empezar otra';
   }
   pintarHistorial();
 }
@@ -661,6 +665,7 @@ $('cerrar').addEventListener('click', () => {
   const tanda = tandaActual();
   detenerLectura();
   tanda.fin = Date.now();
+  delete tanda.previo;   // si era una tanda reabierta, queda guardada con esta nueva hora
   tanda.filas.forEach(f => { f.ubicado = f.estado === 'ok'; });
   guardarMemoria();
   pintar();
@@ -676,7 +681,7 @@ $('corregir').addEventListener('click', () => {
 $('nueva').addEventListener('click', () => {
   const tanda = tandaActual();
   detenerLectura();
-  if (!tanda.fin) memoria.tandas.pop();   // una tanda sin marcar como acomodada no entra al historial
+  if (!tanda.fin) descartarAbierta(tanda);
   memoria.enPantalla = false;
   guardarMemoria();
   $('dictado').value = '';
@@ -858,9 +863,58 @@ function pintarHistorial() {
   $('marcaTotales').textContent = tandas.length
     ? `${tandas.length} ${tandas.length === 1 ? 'tanda' : 'tandas'} · ${libros} libros ubicados · ritmo promedio: ${porMinuto(libros, tiempo).toFixed(1)} libros por minuto`
     : 'Todavía no hay tandas guardadas.';
+  $('ayudaTandas').hidden = !tandas.length;
   $('tandas').innerHTML = tandas.slice().reverse().map(t =>
-    `<li><b>${fechaHora(t.fin)}</b> · ${ubicadosDe(t)} libros · ${duracion(t.fin - t.inicio)} · ${porMinuto(ubicadosDe(t), t.fin - t.inicio).toFixed(1)} libros/min</li>`).join('');
+    `<li><button data-i="${memoria.tandas.indexOf(t)}"><span class="abrir">Abrir ›</span><b>${fechaHora(t.fin)}</b> · ${ubicadosDe(t)} libros · ${duracion(t.fin - t.inicio)} · ${porMinuto(ubicadosDe(t), t.fin - t.inicio).toFixed(1)} libros/min</button></li>`).join('');
 }
+
+/* ───────────── Volver a abrir una tanda del historial ───────────── */
+// La tanda guardada vuelve a la pantalla principal como recién dictada: con su lista, la lectura en voz alta,
+// el botón del Excel de etiquetas y «✓ Tanda acomodada». Es la misma tanda: al acomodarla otra vez se guarda
+// con la nueva hora. Si se deja sin acomodar, vuelve al historial tal como estaba.
+function descartarAbierta(tanda) {
+  const i = memoria.tandas.indexOf(tanda);
+  if (tanda.previo) {
+    const {inicio, fin, ubicados} = tanda.previo;
+    Object.assign(tanda, {inicio, fin});
+    tanda.filas.forEach((f, k) => { f.ubicado = ubicados[k]; });
+    delete tanda.previo;
+    memoria.tandas.splice(i, 1);
+    const despues = memoria.tandas.findIndex(t => t.fin && t.fin > fin);   // regresa a su lugar por fecha
+    memoria.tandas.splice(despues < 0 ? memoria.tandas.length : despues, 0, tanda);
+  } else memoria.tandas.splice(i, 1);   // una tanda sin marcar como acomodada no entra al historial
+}
+let confirmaReabrir = {i: -1, ms: 0};
+$('tandas').addEventListener('click', e => {
+  const boton = e.target.closest('button[data-i]');
+  if (!boton) return;
+  const i = +boton.dataset.i, tanda = memoria.tandas[i], abierta = tandaActual();
+  if (!tanda) return;
+  if (abierta && !abierta.fin) {   // hay otra tanda sin acomodar en pantalla: se pide un segundo toque
+    if (confirmaReabrir.i !== i || Date.now() - confirmaReabrir.ms > 4000) {
+      confirmaReabrir = {i, ms: Date.now()};
+      return avisar(abierta.previo
+        ? 'La tanda en pantalla está reabierta sin acomodar. Toca otra vez para dejarla como estaba y abrir esta.'
+        : 'Hay una tanda dictada sin acomodar en pantalla. Toca otra vez para descartarla y abrir esta.');
+    }
+    descartarAbierta(abierta);
+  }
+  confirmaReabrir = {i: -1, ms: 0};
+  detenerLectura();
+  detenerDictado();
+  tanda.previo = {inicio: tanda.inicio, fin: tanda.fin, ubicados: tanda.filas.map(f => !!f.ubicado)};
+  Object.assign(tanda, {inicio: Date.now(), fin: null});
+  tanda.filas.forEach(f => { delete f.ubicado; });
+  memoria.tandas.splice(memoria.tandas.indexOf(tanda), 1);
+  memoria.tandas.push(tanda);   // la tanda en pantalla siempre es la última
+  memoria.enPantalla = true;
+  guardarMemoria();
+  $('dictado').value = tanda.texto;
+  lector.pos = 0;
+  pintar();
+  $('resultado').scrollIntoView();
+  avisar(`Tanda del ${fechaHora(tanda.previo.fin)} abierta otra vez. El Excel de etiquetas está en su botón.`);
+});
 
 function informe() {
   const hoy = new Date().toDateString();
