@@ -70,9 +70,9 @@ ol{list-style:none;margin:12px 0 0;padding:0}
 .cand{display:flex;gap:10px;width:100%;text-align:left;align-items:center;margin-bottom:8px;border-color:var(--duda);color:var(--tinta);font-weight:400}
 .cand .donde{font-size:1.1rem}
 .cand.ninguno{justify-content:center;font-weight:700;color:var(--duda)}
-#noencontrados{margin-top:14px;border:2px dashed var(--rojo);border-radius:12px;padding:12px}
-#noencontrados h3{margin:0 0 6px;font-size:1.05rem;color:var(--rojo)}
-#noencontrados li{font-size:1.15rem;padding:4px 0}
+#noencontrados,.noencontrados{margin-top:14px;border:2px dashed var(--rojo);border-radius:12px;padding:12px}
+#noencontrados h3,.noencontrados h3{margin:0 0 6px;font-size:1.05rem;color:var(--rojo)}
+#noencontrados li,.noencontrados li{font-size:1.15rem;padding:4px 0}
 #noencontrados li.leyendo{outline:4px solid var(--acento);outline-offset:2px;border-radius:8px}
 #cerrada{font-weight:700;color:var(--verde);margin-top:12px}
 summary{font-weight:800;font-size:1.1rem;color:var(--texto-acento);min-height:44px;display:flex;align-items:center;cursor:pointer}
@@ -80,7 +80,13 @@ summary{font-weight:800;font-size:1.1rem;color:var(--texto-acento);min-height:44
 .marca{border:1.5px solid var(--linea);border-radius:10px;padding:10px;text-align:center}
 .marca b{display:block;font-size:1.5rem;color:var(--texto-acento)}
 .marca span{font-size:.8rem;color:var(--suave)}
-#tandas li{padding:8px 0;border-top:1.5px solid var(--linea);font-size:.9rem}
+#tandas>li{border-top:1.5px solid var(--linea);font-size:.9rem}
+#tandas details{border:0;border-radius:0;padding:0;margin:0;background:none}
+#tandas summary{font-family:var(--f-texto);font-size:.95rem;font-weight:400;color:var(--tinta);min-height:52px;padding:6px 0;gap:8px}
+#tandas summary::after{content:"▾";margin-left:auto;color:var(--texto-acento);font-weight:800}
+#tandas details[open] summary::after{content:"▴"}
+#tandas .fila .donde{font-size:1.1rem}
+#tandas .vacio{padding:12px 0;color:var(--suave)}
 select{min-height:52px;border:2px solid var(--acento);border-radius:12px;padding:6px 10px;background:var(--papel);width:100%;margin-top:10px}
 #aviso{position:fixed;left:12px;right:12px;bottom:calc(16px + env(safe-area-inset-bottom));background:#111;color:#fff;padding:14px 16px;border-radius:12px;font-weight:600;text-align:center;z-index:9;box-shadow:0 4px 16px rgba(0,0,0,.4)}
 /* Apariencia: tema, tono y tonos propios */
@@ -149,11 +155,12 @@ select{min-height:52px;border:2px solid var(--acento);border-radius:12px;padding
       <div class="marca"><b id="marcaPromedio">—</b><span>Promedio · libros por tanda</span></div>
     </div>
     <p id="marcaTotales" class="ayuda"></p>
-    <ol id="tandas"></ol>
-    <select id="alcance" aria-label="Qué tandas incluye el informe">
-      <option value="hoy">Informe de las tandas de hoy</option>
-      <option value="todo">Informe de todo el historial</option>
+    <select id="alcance" aria-label="Qué tandas se ven y entran en el informe">
+      <option value="hoy">Tandas de hoy</option>
+      <option value="todo">Todo el historial</option>
     </select>
+    <p class="ayuda">Toca una tanda para ver dónde quedó cada libro, con su portada. El informe incluye las mismas tandas que ves aquí.</p>
+    <ol id="tandas"></ol>
     <div class="fila-botones">
       <button id="compartir" hidden>Compartir</button>
       <button id="copiar">Copiar</button>
@@ -927,13 +934,39 @@ function pintarHistorial() {
   $('marcaTotales').textContent = tandas.length
     ? `${tandas.length} ${tandas.length === 1 ? 'tanda' : 'tandas'} · ${libros} libros ubicados · ritmo promedio: ${porMinuto(libros, tiempo).toFixed(1)} libros por minuto`
     : 'Todavía no hay tandas guardadas.';
-  $('tandas').innerHTML = tandas.slice().reverse().map(t =>
-    `<li><b>${fechaHora(t.fin)}</b> · ${ubicadosDe(t)} libros · ${duracion(t.fin - t.inicio)} · ${porMinuto(ubicadosDe(t), t.fin - t.inicio).toFixed(1)} libros/min</li>`).join('');
+  const visibles = tandasDelAlcance();
+  $('tandas').innerHTML = visibles.length
+    ? visibles.slice().reverse().map(t =>
+      `<li><details data-inicio="${t.inicio}"><summary><span><b>${fechaHora(t.fin)}</b> · ${ubicadosDe(t)} libros · ${duracion(t.fin - t.inicio)} · ${porMinuto(ubicadosDe(t), t.fin - t.inicio).toFixed(1)} libros/min</span></summary></details></li>`).join('')
+    : `<li class="vacio">${tandas.length ? 'Hoy no hay tandas guardadas. Elige «Todo el historial» para ver las anteriores.' : ''}</li>`;
 }
+// Tandas que se ven en el historial y entran en el informe, según el menú.
+function tandasDelAlcance() {
+  const hoy = new Date().toDateString();
+  return cerradas().filter(t => $('alcance').value === 'todo' || new Date(t.fin).toDateString() === hoy);
+}
+// Libros de una tanda guardada, en el orden de la pila (del último dictado al primero), con su portada.
+// Se arma al abrirla, para no cargar cientos de portadas de golpe.
+function detalleDeTanda(t) {
+  const filas = t.filas.slice().reverse(), no = filas.filter(f => f.estado !== 'ok');
+  const libros = filas.filter(f => f.estado === 'ok').map(f => {
+    const b = POR_ID.get(f.id);
+    if (!b) return `<li class="fila"><div class="cuerpo"><p class="donde">${esc(f.id)}</p><p class="nota">Este folio ya no está en el Registro cargado.</p></div></li>`;
+    return `<li class="fila${f.ubicado ? '' : ' fuera'}">${portadaHTML(b)}<div class="cuerpo">${lugarHTML(b)}${datosHTML(b)}
+      <p class="nota">${f.ubicado ? '✓ Ubicado' : '✗ No se acomodó'} · dictado: «${esc(f.dicho)}»</p></div></li>`;
+  }).join('');
+  return `<ol>${libros}</ol>` + (no.length ? `<div class="noencontrados"><h3>No encontrados</h3><ol>${no.map(f => `<li>«${esc(f.dicho)}»</li>`).join('')}</ol></div>` : '');
+}
+$('tandas').addEventListener('toggle', e => {
+  const d = e.target;
+  if (!d.open || d.dataset.listo) return;
+  const t = cerradas().find(x => String(x.inicio) === d.dataset.inicio);
+  if (t) { d.insertAdjacentHTML('beforeend', detalleDeTanda(t)); d.dataset.listo = '1'; }
+}, true);   // «toggle» no burbujea: se escucha en la fase de captura
+$('alcance').addEventListener('change', pintarHistorial);
 
 function informe() {
-  const hoy = new Date().toDateString();
-  const tandas = cerradas().filter(t => $('alcance').value === 'todo' || new Date(t.fin).toDateString() === hoy);
+  const tandas = tandasDelAlcance();
   const ubicados = [], sinAcomodar = [], avisos = [], perdidos = [];
   tandas.forEach(t => t.filas.forEach(f => {
     const b = f.estado === 'ok' ? POR_ID.get(f.id) : null;
