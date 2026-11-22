@@ -6,28 +6,39 @@
 <meta name="theme-color" content="#0d4a48">
 <title>Tandas de acomodo · Biblioteca Viva</title>
 <link rel="icon" href="data:,">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&display=swap" rel="stylesheet">
 <style>
-:root{--teal:#0d4a48;--teal2:#11706b;--verde:#1b6e34;--rojo:#a3241c;--tinta:#141a1a;--gris:#4c5757;--fondo:#f3f5f4;--amarillo:#ffe680;--borde:#c4cdcb}
+:root{--acento:#11706b;--acento-fuerte:#0d4a48;--texto-acento:#0d4a48;--acento-suave:#d9efeb;--sobre-acento:#fff;
+  --papel:#fff;--fondo:#eef2f1;--tinta:#0b1a17;--suave:#2f403c;--linea:#3b4240;--verde:#1b6e34;--rojo:#a3241c;--amarillo:#ffe680;--sobre-amarillo:#141a1a;
+  --duda:#1d4f9c;--duda-fondo:#e6f0ff;--hueco:#dfe5e3;--sombra:rgba(0,0,0,.3);
+  --f-titulo:"Bricolage Grotesque",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  --f-texto:"Atkinson Hyperlegible",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;color-scheme:light}
+:root[data-oscuro]{--papel:#14201e;--fondo:#0b1312;--tinta:#f1f7f5;--suave:#c3d1ce;--linea:#8b9794;--verde:#5fc07a;--rojo:#fc8181;--amarillo:#5a4a0c;--sobre-amarillo:#fff6cc;
+  --duda:#90cdf4;--duda-fondo:#172a3d;--hueco:#26322f;--sombra:rgba(0,0,0,.6);color-scheme:dark}
 *{box-sizing:border-box}
 html{font-size:18px;-webkit-text-size-adjust:100%}
-body{margin:0;font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:var(--fondo);color:var(--tinta);line-height:1.35}
-header{background:var(--teal);color:#fff;padding:max(12px,env(safe-area-inset-top)) 16px 12px}
+body{margin:0;font-family:var(--f-texto);background:var(--fondo);color:var(--tinta);line-height:1.35}
+h1,h2,summary,.donde,.marca b{font-family:var(--f-titulo)}
+header{background:var(--acento-fuerte);color:#fff;padding:max(12px,env(safe-area-inset-top)) 16px 12px}
 h1{margin:0;font-size:1.25rem}
 header p{margin:2px 0 0;font-size:.85rem;opacity:.9}
 main{padding:12px 12px calc(28px + env(safe-area-inset-bottom));max-width:640px;margin:0 auto}
-section,details{background:#fff;border:1px solid var(--borde);border-radius:14px;padding:14px;margin-bottom:14px}
-h2{margin:0 0 8px;font-size:1.15rem;color:var(--teal)}
+section,details{background:var(--papel);border:1.5px solid var(--linea);border-radius:14px;padding:14px;margin-bottom:14px}
+h2{margin:0 0 8px;font-size:1.15rem;color:var(--texto-acento)}
 p{margin:0}
 button,select,textarea,input{font:inherit;color:inherit}
-button{min-height:56px;border:2px solid var(--teal2);border-radius:12px;background:#fff;color:var(--teal);font-weight:700;padding:8px 14px;cursor:pointer;touch-action:manipulation}
+:focus-visible{outline:3px solid var(--acento);outline-offset:2px}
+button{min-height:56px;border:2px solid var(--acento);border-radius:12px;background:var(--papel);color:var(--texto-acento);font-weight:700;padding:8px 14px;cursor:pointer;touch-action:manipulation}
 button:active{transform:translateY(1px)}
-button.principal{background:var(--teal2);color:#fff;width:100%;font-size:1.2rem;min-height:64px}
-button.cierre{background:var(--verde);border-color:var(--verde);color:#fff;width:100%;font-size:1.2rem;min-height:64px}
-button.activo{background:var(--rojo);border-color:var(--rojo);color:#fff}
+button.principal{background:var(--acento);color:var(--sobre-acento);width:100%;font-size:1.2rem;min-height:64px}
+button.cierre{background:var(--verde);border-color:var(--verde);color:var(--papel);width:100%;font-size:1.2rem;min-height:64px}
+button.activo{background:var(--rojo);border-color:var(--rojo);color:var(--papel)}
 button.peligro{border-color:var(--rojo);color:var(--rojo)}
 [hidden]{display:none!important}
-textarea{width:100%;min-height:9.5em;font-size:1.2rem;padding:12px;border:2px solid var(--teal2);border-radius:12px;resize:vertical;background:#fff}
-.ayuda{font-size:.85rem;color:var(--gris);margin:6px 0 10px}
+textarea{width:100%;min-height:9.5em;font-size:1.2rem;padding:12px;border:2px solid var(--acento);border-radius:12px;resize:vertical;background:var(--papel)}
+.ayuda{font-size:.85rem;color:var(--suave);margin:6px 0 10px}
 #estadoMic{font-weight:700;color:var(--rojo);min-height:2.6em}
 .fila-botones{display:flex;gap:8px;margin-top:10px}
 .fila-botones>*{flex:1}
@@ -35,42 +46,55 @@ textarea{width:100%;min-height:9.5em;font-size:1.2rem;padding:12px;border:2px so
 .voz{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
 .voz #leer{grid-column:1/-1}
 .ajuste{display:flex;align-items:center;gap:12px;min-height:52px;font-weight:600}
-.ajuste input[type=checkbox]{width:30px;height:30px;accent-color:var(--teal2);flex:none}
-.ajuste input[type=range]{flex:1;min-width:0;height:36px;accent-color:var(--teal2)}
+.ajuste input[type=checkbox]{width:30px;height:30px;accent-color:var(--acento);flex:none}
+.ajuste input[type=range]{flex:1;min-width:0;height:36px;accent-color:var(--acento)}
 ol{list-style:none;margin:12px 0 0;padding:0}
-.fila{display:flex;gap:12px;padding:12px 6px;border-top:2px solid var(--borde);align-items:flex-start}
-.fila img,.sinportada{width:64px;height:88px;flex:none;border-radius:6px;object-fit:cover;background:#dfe5e3;box-shadow:0 1px 4px rgba(0,0,0,.3)}
-.sinportada{display:flex;align-items:center;justify-content:center;text-align:center;font-size:.6rem;color:var(--gris);padding:4px}
+.fila{display:flex;gap:12px;padding:12px 6px;border-top:2px solid var(--linea);align-items:flex-start}
+.fila img,.sinportada{width:64px;height:88px;flex:none;border-radius:6px;object-fit:cover;background:var(--hueco);box-shadow:0 1px 4px var(--sombra)}
+.sinportada{display:flex;align-items:center;justify-content:center;text-align:center;font-size:.6rem;color:var(--suave);padding:4px}
 .cuerpo{flex:1;min-width:0}
 .donde{font-size:1.4rem;font-weight:800;line-height:1.2;overflow-wrap:anywhere}
 .donde span{white-space:nowrap}
-.datos{font-size:.85rem;color:var(--gris);margin-top:4px}
+.datos{font-size:.85rem;color:var(--suave);margin-top:4px}
 .datos b{color:var(--tinta)}
 .alerta{margin-top:6px;font-weight:700;font-size:.95rem}
-.nota{margin-top:6px;font-size:.85rem;color:var(--gris)}
-.fila.aviso{background:var(--amarillo);border-radius:10px}
-.fila.leyendo{outline:4px solid var(--teal2);outline-offset:-2px;border-radius:10px}
-.fila.fuera .donde{text-decoration:line-through;color:var(--gris)}
+.nota{margin-top:6px;font-size:.85rem;color:var(--suave)}
+.fila.aviso{background:var(--amarillo);color:var(--sobre-amarillo);border-radius:10px}
+.fila.aviso .datos,.fila.aviso .datos b,.fila.aviso .nota{color:var(--sobre-amarillo)}
+.fila.leyendo{outline:4px solid var(--acento);outline-offset:-2px;border-radius:10px}
+.fila.fuera .donde{text-decoration:line-through;color:var(--suave)}
 .fila .acciones{margin-top:8px}
 .fila .acciones button{min-height:48px;font-size:.9rem}
-.fila.duda{display:block;background:#e6f0ff;border:2px solid #1d4f9c;border-radius:12px;margin-top:10px}
+.fila.duda{display:block;background:var(--duda-fondo);border:2px solid var(--duda);border-radius:12px;margin-top:10px}
 .fila.duda>p{font-weight:700;margin-bottom:8px}
-.cand{display:flex;gap:10px;width:100%;text-align:left;align-items:center;margin-bottom:8px;border-color:#1d4f9c;color:var(--tinta);font-weight:400}
+.cand{display:flex;gap:10px;width:100%;text-align:left;align-items:center;margin-bottom:8px;border-color:var(--duda);color:var(--tinta);font-weight:400}
 .cand .donde{font-size:1.1rem}
-.cand.ninguno{justify-content:center;font-weight:700;color:#1d4f9c}
+.cand.ninguno{justify-content:center;font-weight:700;color:var(--duda)}
 #noencontrados{margin-top:14px;border:2px dashed var(--rojo);border-radius:12px;padding:12px}
 #noencontrados h3{margin:0 0 6px;font-size:1.05rem;color:var(--rojo)}
 #noencontrados li{font-size:1.15rem;padding:4px 0}
-#noencontrados li.leyendo{outline:4px solid var(--teal2);outline-offset:2px;border-radius:8px}
+#noencontrados li.leyendo{outline:4px solid var(--acento);outline-offset:2px;border-radius:8px}
 #cerrada{font-weight:700;color:var(--verde);margin-top:12px}
-summary{font-weight:800;font-size:1.1rem;color:var(--teal);min-height:44px;display:flex;align-items:center;cursor:pointer}
+summary{font-weight:800;font-size:1.1rem;color:var(--texto-acento);min-height:44px;display:flex;align-items:center;cursor:pointer}
 .marcas{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:10px 0}
-.marca{border:1px solid var(--borde);border-radius:10px;padding:10px;text-align:center}
-.marca b{display:block;font-size:1.5rem;color:var(--teal)}
-.marca span{font-size:.8rem;color:var(--gris)}
-#tandas li{padding:8px 0;border-top:1px solid var(--borde);font-size:.9rem}
-select{min-height:52px;border:2px solid var(--teal2);border-radius:12px;padding:6px 10px;background:#fff;width:100%;margin-top:10px}
+.marca{border:1.5px solid var(--linea);border-radius:10px;padding:10px;text-align:center}
+.marca b{display:block;font-size:1.5rem;color:var(--texto-acento)}
+.marca span{font-size:.8rem;color:var(--suave)}
+#tandas li{padding:8px 0;border-top:1.5px solid var(--linea);font-size:.9rem}
+select{min-height:52px;border:2px solid var(--acento);border-radius:12px;padding:6px 10px;background:var(--papel);width:100%;margin-top:10px}
 #aviso{position:fixed;left:12px;right:12px;bottom:calc(16px + env(safe-area-inset-bottom));background:#111;color:#fff;padding:14px 16px;border-radius:12px;font-weight:600;text-align:center;z-index:9;box-shadow:0 4px 16px rgba(0,0,0,.4)}
+/* Apariencia: tema, tono y tonos propios */
+.etq{font-weight:700;font-size:.9rem;color:var(--suave);margin:12px 0 6px}
+.chips{display:flex;flex-wrap:wrap;gap:8px}
+.chips button{min-height:48px;flex:1;font-size:.95rem;padding:6px 10px}
+.chips button[aria-pressed="true"],.tono[aria-pressed="true"]{background:var(--acento);border-color:var(--acento);color:var(--sobre-acento)}
+.tonos{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.tono{min-height:52px;display:flex;align-items:center;gap:10px;text-align:left;font-size:.95rem;padding:6px 10px}
+.tono i{width:26px;height:26px;border-radius:50%;flex:none;box-shadow:0 0 0 2px var(--papel),0 0 0 3.5px var(--linea)}
+.colores{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.colores label{display:flex;flex-direction:column;gap:4px;font-size:.85rem;font-weight:700;color:var(--suave)}
+.colores input{width:100%;height:52px;border:2px solid var(--acento);border-radius:12px;background:var(--papel);padding:4px}
+@media (prefers-reduced-motion: reduce){*{scroll-behavior:auto!important}}
 </style>
 </head>
 <body>
@@ -136,6 +160,22 @@ select{min-height:52px;border:2px solid var(--teal2);border-radius:12px;padding:
       <button id="descargar">Descargar .txt</button>
     </div>
     <div class="fila-botones"><button id="borrarHistorial" class="peligro">Borrar historial</button></div>
+  </details>
+
+  <details id="apariencia">
+    <summary>Apariencia</summary>
+    <p class="etq">Tema</p>
+    <div class="chips" id="temas"></div>
+    <p class="ayuda">«Predeterminado» sigue el modo claro u oscuro del celular.</p>
+    <p class="etq">Tono de color</p>
+    <div class="tonos" id="tonos"></div>
+    <p class="etq">Mis tonos</p>
+    <button id="usarPropios" class="tono" style="width:100%"></button>
+    <div class="colores" style="margin-top:8px">
+      <label>Color principal<input type="color" id="cPrincipal"></label>
+      <label>Líneas y texto secundario<input type="color" id="cLineas"></label>
+    </div>
+    <p class="ayuda">La app ajusta lo claro u oscuro de cada tono para que el texto se siga leyendo bien en cada tema.</p>
   </details>
 </main>
 <div id="aviso" role="status" hidden></div>
@@ -965,6 +1005,88 @@ async function pantallaEncendida() {
 document.addEventListener('visibilitychange', pantallaEncendida);
 pantallaEncendida();
 if ('serviceWorker' in navigator && location.protocol.startsWith('http')) navigator.serviceWorker.register('sw.js').catch(() => {});
+
+/* ───────────── Apariencia: tema, tono de color y tonos propios ─────────────
+   Solo cambia colores; no toca el dictado, la identificación ni la lectura. Se guarda en este celular. */
+const TEMAS = [{id: 'sistema', t: 'Predeterminado'}, {id: 'claro', t: 'Claro'}, {id: 'oscuro', t: 'Oscuro'}];
+// Tonos sencillos (matiz h, saturación s). Turquesa conserva el aspecto original de la app y sus líneas neutras.
+const TONOS = [
+  {id: 'turquesa', t: 'Turquesa', h: 176, s: 74, neutro: true}, {id: 'azul', t: 'Azul', h: 215, s: 75},
+  {id: 'rojo', t: 'Rojo', h: 0, s: 72}, {id: 'naranja', t: 'Naranja', h: 18, s: 85},
+  {id: 'amarillo', t: 'Amarillo', h: 50, s: 90}, {id: 'verde', t: 'Verde', h: 130, s: 50},
+  {id: 'morado', t: 'Morado', h: 275, s: 60}, {id: 'rosa', t: 'Rosa', h: 330, s: 70}
+];
+const NEUTROS = {claro: ['#3b4240', '#2f403c'], oscuro: ['#8b9794', '#c3d1ce']};
+const apariencia = Object.assign({tema: 'sistema', tono: 'turquesa', propios: {principal: '#11706b', lineas: '#3b4240'}}, leer('bv-tandas-apariencia', {}));
+const oscuroDelCelular = window.matchMedia ? matchMedia('(prefers-color-scheme: dark)') : null;
+const modoOscuro = () => apariencia.tema === 'oscuro' || (apariencia.tema === 'sistema' && !!oscuroDelCelular && oscuroDelCelular.matches);
+
+function hsl(h, s, l) {
+  s /= 100; l /= 100;
+  const f = n => { const k = (n + h / 30) % 12, a = s * Math.min(l, 1 - l);
+    return Math.round(255 * (l - a * Math.max(-1, Math.min(k - 3, 9 - k, 1)))).toString(16).padStart(2, '0'); };
+  return '#' + f(0) + f(8) + f(4);
+}
+function aHsl(hex) {
+  const [r, g, b] = [1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16) / 255);
+  const mx = Math.max(r, g, b), mn = Math.min(r, g, b), d = mx - mn, l = (mx + mn) / 2;
+  let h = 0; if (d) h = mx === r ? ((g - b) / d) % 6 : mx === g ? (b - r) / d + 2 : (r - g) / d + 4;
+  return {h: Math.round((h * 60 + 360) % 360), s: d ? Math.round(d / (1 - Math.abs(2 * l - 1)) * 100) : 0};
+}
+const luz = hex => [1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16) / 255)
+  .map(c => c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4))
+  .reduce((a, c, i) => a + c * [0.2126, 0.7152, 0.0722][i], 0);
+const contraste = (a, b) => { const x = luz(a), y = luz(b); return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05); };
+// Oscurece un tono hasta que el texto blanco encima se lea con el contraste pedido.
+function oscuroLegible(h, s, l, minimo) { let c = hsl(h, s, l); while (l > 10 && contraste(c, '#ffffff') < minimo) c = hsl(h, s, --l); return c; }
+
+/* Colores de un tono: acento, acento fuerte (cabecera), texto en acento, acento suave, líneas y texto secundario. */
+function coloresDe(h, s, oscuro, hl = h, sl = s) {
+  const fuerte = oscuroLegible(h, s, 32, 7);
+  if (oscuro) {
+    const ac = hsl(h, Math.min(s, 70), 62);
+    return {acento: ac, fuerte, texto: ac, suave: hsl(h, Math.min(s, 40), 18), linea: hsl(hl, Math.min(sl, 25), 58), secundario: hsl(hl, Math.min(sl, 45), 84)};
+  }
+  return {acento: oscuroLegible(h, s, 42, 4.5), fuerte, texto: fuerte, suave: hsl(h, Math.min(s, 60), 92), linea: hsl(hl, Math.min(sl, 35), 34), secundario: hsl(hl, Math.min(sl, 40), 22)};
+}
+function coloresActuales() {
+  const oscuro = modoOscuro();
+  if (apariencia.tono === 'propios') {
+    const a = aHsl(apariencia.propios.principal), b = aHsl(apariencia.propios.lineas);
+    return coloresDe(a.h, a.s, oscuro, b.h, b.s);
+  }
+  const t = TONOS.find(x => x.id === apariencia.tono) || TONOS[0], c = coloresDe(t.h, t.s, oscuro);
+  if (t.neutro) [c.linea, c.secundario] = oscuro ? NEUTROS.oscuro : NEUTROS.claro;
+  return c;
+}
+function aplicarApariencia() {
+  const raiz = document.documentElement, c = coloresActuales();
+  raiz.toggleAttribute('data-oscuro', modoOscuro());
+  const vars = {'--acento': c.acento, '--acento-fuerte': c.fuerte, '--texto-acento': c.texto, '--acento-suave': c.suave, '--linea': c.linea, '--suave': c.secundario,
+    '--sobre-acento': contraste(c.acento, '#ffffff') >= contraste(c.acento, '#0b1312') ? '#ffffff' : '#0b1312'};
+  Object.entries(vars).forEach(([k, v]) => raiz.style.setProperty(k, v));
+  document.querySelector('meta[name="theme-color"]').setAttribute('content', c.fuerte);
+}
+function pintarApariencia() {
+  $('temas').innerHTML = TEMAS.map(t => `<button data-tema="${t.id}" aria-pressed="${apariencia.tema === t.id}">${t.t}</button>`).join('');
+  $('tonos').innerHTML = TONOS.map(t => `<button class="tono" data-tono="${t.id}" aria-pressed="${apariencia.tono === t.id}"><i style="background:linear-gradient(135deg,${coloresDe(t.h, t.s, false).acento} 50%,${coloresDe(t.h, t.s, true).acento} 50%)"></i>${t.t}</button>`).join('');
+  const p = apariencia.propios;
+  $('usarPropios').innerHTML = `<i style="background:linear-gradient(135deg,${p.principal} 50%,${p.lineas} 50%)"></i>🎨 Usar mis tonos`;
+  $('usarPropios').setAttribute('aria-pressed', apariencia.tono === 'propios');
+  $('cPrincipal').value = p.principal; $('cLineas').value = p.lineas;
+}
+function cambiarApariencia(cambio) { Object.assign(apariencia, cambio); guardar('bv-tandas-apariencia', apariencia); aplicarApariencia(); pintarApariencia(); }
+$('temas').addEventListener('click', e => { const b = e.target.closest('[data-tema]'); if (b) cambiarApariencia({tema: b.dataset.tema}); });
+$('tonos').addEventListener('click', e => { const b = e.target.closest('[data-tono]'); if (b) cambiarApariencia({tono: b.dataset.tono}); });
+$('usarPropios').addEventListener('click', () => cambiarApariencia({tono: 'propios'}));
+const propiosEnPantalla = () => ({tono: 'propios', propios: {principal: $('cPrincipal').value, lineas: $('cLineas').value}});
+['cPrincipal', 'cLineas'].forEach(id => {
+  $(id).addEventListener('input', () => { Object.assign(apariencia, propiosEnPantalla()); aplicarApariencia(); });  // vista previa al mover el selector
+  $(id).addEventListener('change', () => cambiarApariencia(propiosEnPantalla()));
+});
+if (oscuroDelCelular) oscuroDelCelular.addEventListener('change', aplicarApariencia);
+aplicarApariencia();
+pintarApariencia();
 
 /* ───────────── Arranque ───────────── */
 $('acervo').textContent = `${LIBROS.length.toLocaleString('es-MX')} libros · Registro del ${FECHA_DATOS.split('-').reverse().join('/')}`;
