@@ -65,6 +65,10 @@ ol{list-style:none;margin:12px 0 0;padding:0}
 .fila.fuera .donde{text-decoration:line-through;color:var(--suave)}
 .fila .acciones{margin-top:8px}
 .fila .acciones button{min-height:48px;font-size:.9rem}
+.copias{display:flex;align-items:center;gap:8px;margin-top:8px;font-weight:700;font-size:.95rem}
+.copias button{min-height:48px;min-width:52px;padding:4px;font-size:1.3rem}
+.copias input{width:4.2em;min-height:48px;text-align:center;font-size:1.2rem;font-weight:700;border:2px solid var(--acento);border-radius:12px;background:var(--papel)}
+.fila.aviso .copias input{color:var(--tinta)}
 .fila.duda{display:block;background:var(--duda-fondo);border:2px solid var(--duda);border-radius:12px;margin-top:10px}
 .fila.duda>p{font-weight:700;margin-bottom:8px}
 .cand{display:flex;gap:10px;width:100%;text-align:left;align-items:center;margin-bottom:8px;border-color:var(--duda);color:var(--tinta);font-weight:400}
@@ -574,22 +578,28 @@ const celdaTexto = (ref, t) => t === '' ? '' : `<c r="${ref}" t="inlineStr"><is>
 function hojaXML(filas, anchos) {
   return '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
     + `<cols>${anchos.map((w, i) => `<col min="${i + 1}" max="${i + 1}" width="${w}" customWidth="1"/>`).join('')}</cols><sheetData>`
-    + filas.map((fila, i) => `<row r="${i + 1}">${fila.map((t, j) => celdaTexto('ABCDE'[j] + (i + 1), t)).join('')}</row>`).join('')
+    + filas.map((fila, i) => `<row r="${i + 1}">${fila.map((t, j) => celdaTexto('ABCDEF'[j] + (i + 1), t)).join('')}</row>`).join('')
     + '</sheetData></worksheet>';
 }
+// Copias del mismo libro en la pila (multiplicador del renglón): cada copia lleva su propia etiqueta.
+const COPIAS_MAXIMAS = 99;
+const copiasDe = f => Math.min(COPIAS_MAXIMAS, Math.max(1, Math.round(+f.copias) || 1));
 // Un renglón por libro de la tanda, del último dictado al primero (el orden de la pila).
 // Libro sin folio en el Registro: va en la hoja «Referencia», pero no ocupa celda en «Folios».
 function renglonesDeEtiquetas(tanda) {
   return tanda.filas.slice().reverse().map((f, i) => {
     const b = f.estado === 'ok' ? POR_ID.get(f.id) : null;
-    return {n: i + 1, folio: b ? b.id : '', titulo: b ? b.titulo : '', dicho: f.dicho,
+    return {n: i + 1, folio: b ? b.id : '', copias: b ? copiasDe(f) : 0, titulo: b ? b.titulo : '', dicho: f.dicho,
             nota: b ? '' : 'No registrado: sin etiqueta (no aparece en la hoja «Folios»)'};
   });
 }
+// Total de etiquetas que salen en la hoja «Folios» (cada folio tantas veces como copias tenga).
+const totalEtiquetas = r => r.reduce((t, x) => t + x.copias, 0);
 function crearExcelEtiquetas(tanda) {
   const r = renglonesDeEtiquetas(tanda);
-  const hoja1 = hojaXML(r.filter(x => x.folio).map(x => [x.folio]), [14]);   // sin renglones vacíos: no se desperdician etiquetas
-  const hoja2 = hojaXML([['N.º en la pila', 'Folio', 'Título del Registro', 'Lo que se dictó', 'Nota'], ...r.map(x => [String(x.n), x.folio, x.titulo, x.dicho, x.nota])], [6, 12, 50, 40, 32]);
+  // Sin renglones vacíos (no se desperdician etiquetas); las copias de un libro van seguidas.
+  const hoja1 = hojaXML(r.filter(x => x.folio).flatMap(x => Array(x.copias).fill([x.folio])), [14]);
+  const hoja2 = hojaXML([['N.º en la pila', 'Folio', 'Copias', 'Título del Registro', 'Lo que se dictó', 'Nota'], ...r.map(x => [String(x.n), x.folio, x.folio ? String(x.copias) : '', x.titulo, x.dicho, x.nota])], [6, 12, 8, 50, 40, 32]);
   const cab = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>';
   return armarZip([
     ['[Content_Types].xml', cab + '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/worksheets/sheet2.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/></Types>'],
@@ -602,14 +612,14 @@ function crearExcelEtiquetas(tanda) {
 }
 const hayDudas = tanda => tanda.filas.some(f => f.estado === 'duda');
 function exportarEtiquetas(tanda) {
-  const r = renglonesDeEtiquetas(tanda), etiquetas = r.filter(x => x.folio).length, vacios = r.length - etiquetas;
+  const r = renglonesDeEtiquetas(tanda), etiquetas = totalEtiquetas(r), vacios = r.filter(x => !x.folio).length;
   const d = new Date(tanda.inicio), dos = n => String(n).padStart(2, '0');
   const nombre = `Etiquetas_${d.getFullYear()}-${dos(d.getMonth() + 1)}-${dos(d.getDate())}_${dos(d.getHours())}${dos(d.getMinutes())}.xlsx`;
   const url = URL.createObjectURL(crearExcelEtiquetas(tanda)), a = document.createElement('a');
   a.href = url; a.download = nombre;
   document.body.appendChild(a); a.click(); a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 60000);
-  avisar(`Excel de etiquetas descargado: ${etiquetas} ${etiquetas === 1 ? 'folio' : 'folios'}, del último libro dictado al primero` + (vacios ? `. ${vacios} sin registro no se incluyeron (están en la hoja «Referencia»).` : '.'));
+  avisar(`Excel de etiquetas descargado: ${etiquetas} ${etiquetas === 1 ? 'etiqueta' : 'etiquetas'}, del último libro dictado al primero` + (vacios ? `. ${vacios} sin registro no se incluyeron (están en la hoja «Referencia»).` : '.'));
 }
 // Se exporta solo cuando ya no queda ninguna duda por aclarar.
 function exportarSiListo() {
@@ -642,7 +652,7 @@ function filaHTML(tanda, f) {
   }
   const b = POR_ID.get(f.id);
   if (!b) return `<li class="fila" data-n="${n}"><div class="cuerpo"><p class="donde">${esc(f.id)}</p><p class="nota">Este folio ya no está en el Registro cargado.</p></div></li>`;
-  const alerta = avisoDeLugar(b), otros = f.cands.length - 1;
+  const alerta = avisoDeLugar(b), otros = f.cands.length - 1, copias = copiasDe(f);
   const accion = tanda.fin
     ? `<button data-accion="ubicado">${f.ubicado ? '✓ Ubicado · tocar si no lo acomodé' : '✗ No lo acomodé · tocar para marcar'}</button>`
     : (otros > 0 ? '<button data-accion="reabrir">Elegir otro registro</button>' : '');
@@ -650,6 +660,10 @@ function filaHTML(tanda, f) {
     ${portadaHTML(b)}<div class="cuerpo">${lugarHTML(b)}${datosHTML(b)}
     ${alerta ? `<p class="alerta">⚠ ${esc(alerta)}</p>` : ''}
     ${otros > 0 && !tanda.fin ? `<p class="nota">Hay ${otros === 1 ? 'otro registro parecido' : otros + ' registros parecidos'} a lo que dictaste («${esc(f.dicho)}»).</p>` : ''}
+    <div class="copias"><span>Copias</span>
+      <button data-accion="menos" aria-label="Una copia menos"${copias <= 1 ? ' disabled' : ''}>−</button>
+      <input type="number" class="num-copias" min="1" max="${COPIAS_MAXIMAS}" inputmode="numeric" value="${copias}" aria-label="Copias de ${esc(b.titulo)}">
+      <button data-accion="mas" aria-label="Una copia más"${copias >= COPIAS_MAXIMAS ? ' disabled' : ''}>+</button></div>
     ${accion ? `<div class="acciones">${accion}</div>` : ''}</div></li>`;
 }
 
@@ -672,6 +686,8 @@ function pintar() {
     $('lista').innerHTML = filasVisibles(tanda).map(f => filaHTML(tanda, f)).join('');
     $('noencontrados').hidden = !no.length;
     $('etiquetas').hidden = hayDudas(tanda);
+    const etiquetas = totalEtiquetas(renglonesDeEtiquetas(tanda));
+    $('etiquetas').textContent = `📄 Descargar Excel de etiquetas (${etiquetas} ${etiquetas === 1 ? 'etiqueta' : 'etiquetas'})`;
     $('listaNo').innerHTML = no.slice().reverse().map(f => `<li data-n="${tanda.filas.indexOf(f)}">«${esc(f.dicho)}»</li>`).join('');
     const ubicados = tanda.filas.filter(f => f.ubicado).length;
     $('cerrada').hidden = !tanda.fin;
@@ -709,12 +725,25 @@ $('lista').addEventListener('click', e => {
   else if (accion === 'ninguno') Object.assign(f, {estado: 'no', id: null});
   else if (accion === 'reabrir') Object.assign(f, {estado: 'duda', id: null});
   else if (accion === 'ubicado') f.ubicado = !f.ubicado;
+  else if (accion === 'mas' || accion === 'menos') return cambiarCopias(tanda, f, copiasDe(f) + (accion === 'mas' ? 1 : -1));
   detenerLectura();
   guardarMemoria();
   pintar();
   if (accion === 'elegir' || accion === 'ninguno') exportarSiListo();
 });
 
+// Multiplicador de copias: no descarga solo en cada toque; el botón de etiquetas muestra el nuevo total.
+function cambiarCopias(tanda, f, n) {
+  f.copias = copiasDe({copias: n});
+  guardarMemoria();
+  pintar();
+  if (!hayDudas(tanda)) avisar(`${f.copias} ${f.copias === 1 ? 'copia' : 'copias'} de ${f.id}. Vuelve a descargar el Excel para que salgan ${totalEtiquetas(renglonesDeEtiquetas(tanda))} etiquetas.`);
+}
+$('lista').addEventListener('change', e => {
+  if (!e.target.classList.contains('num-copias')) return;
+  const tanda = tandaActual();
+  cambiarCopias(tanda, tanda.filas[+e.target.closest('.fila').dataset.n], e.target.value);
+});
 $('etiquetas').addEventListener('click', () => exportarEtiquetas(tandaActual()));
 $('identificar').addEventListener('click', identificar);
 $('borrar').addEventListener('click', () => {
@@ -953,7 +982,7 @@ function detalleDeTanda(t) {
     const b = POR_ID.get(f.id);
     if (!b) return `<li class="fila"><div class="cuerpo"><p class="donde">${esc(f.id)}</p><p class="nota">Este folio ya no está en el Registro cargado.</p></div></li>`;
     return `<li class="fila${f.ubicado ? '' : ' fuera'}">${portadaHTML(b)}<div class="cuerpo">${lugarHTML(b)}${datosHTML(b)}
-      <p class="nota">${f.ubicado ? '✓ Ubicado' : '✗ No se acomodó'} · dictado: «${esc(f.dicho)}»</p></div></li>`;
+      <p class="nota">${f.ubicado ? '✓ Ubicado' : '✗ No se acomodó'}${copiasDe(f) > 1 ? ` · ${copiasDe(f)} copias` : ''} · dictado: «${esc(f.dicho)}»</p></div></li>`;
   }).join('');
   return `<ol>${libros}</ol>` + (no.length ? `<div class="noencontrados"><h3>No encontrados</h3><ol>${no.map(f => `<li>«${esc(f.dicho)}»</li>`).join('')}</ol></div>` : '');
 }
@@ -972,7 +1001,7 @@ function informe() {
     const b = f.estado === 'ok' ? POR_ID.get(f.id) : null;
     if (f.estado !== 'ok') return perdidos.push(`«${f.dicho}» · ${fechaHora(t.fin)}`);
     const lugar = b ? `${b.anaquel}-${b.entrepano}` : 'folio fuera del Registro actual';
-    (f.ubicado ? ubicados : sinAcomodar).push(`${f.id} · ${lugar} · ${fechaHora(t.fin)}`);
+    (f.ubicado ? ubicados : sinAcomodar).push(`${f.id} · ${lugar}${copiasDe(f) > 1 ? ` · ${copiasDe(f)} copias` : ''} · ${fechaHora(t.fin)}`);
     if (b && b.donde) avisos.push(`${f.id} · ${b.donde}`);
   }));
   const bloque = (titulo, renglones) => renglones.length ? ['', `${titulo} (${renglones.length})`, ...renglones] : [];
